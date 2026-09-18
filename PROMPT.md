@@ -75,6 +75,10 @@ Port the two invocations from `scripts/run_local.sh` exactly, including these ha
   "<prompt>"`, model default `zai-coding-plan/glm-5.3`, key from `ZHIPU_API_KEY`.
 - pi: `pi -p --mode json --no-session --no-extensions --no-skills --no-prompt-templates --model <model>
   --thinking <level> "<prompt>"`, model default `zai/glm-5.3`, key from `ZAI_API_KEY`.
+- Keep `--pure` (opencode) and `--no-skills --no-extensions --no-prompt-templates` (pi) on these reviewer
+  invocations even after the skill exists: the reviewer must see only the review prompt, and loading the
+  user's skills would let it invoke deep-review recursively. The skill is for the *coding* agent, which
+  loads it through normal discovery or explicitly with `pi -p --skill <dir> "..."`.
 - **stdin must be `/dev/null`** for both, or they block forever before the first model call when launched
   from anything that leaves stdin open (background shells, some CI). Use `subprocess.run(..., stdin=DEVNULL)`.
 - Both take the prompt as a single argv element; never pipe it.
