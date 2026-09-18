@@ -29,7 +29,7 @@ The deep layer earns its place: on PR #2 it found every planted bug plus real ex
 | Reviewer | PR | Matched Copilot | New real findings | Noise | Time | Tokens (fresh in / cached / out) | Steps / tools |
 |---|---|---|---|---|---|---|---|
 | opencode | hardware-dashboard#25 (React, 39 files, 9.7k diff lines) | **4 of 7** (both sibling pagers ignore `q`, ProvenanceTab flag keys, Shipments "no shipments" while pending) | 2 (200-with-null body hits the generic error branch; "No users match ''" copy) | 0 | 918 s | 168k / 10.0M / 11k | 74 / 96, ran 832 Vitest tests, build, lint, story gate, plus 4 throwaway tests |
-| Pi | hardware-dashboard#25 | _pending_ | | | | | |
+| Pi | hardware-dashboard#25 | **1 of 7** (laptop sibling pager ignores `q`) | 3 (freshness strip double-appends "ago"; Shipments tab scoped by substring search can show other devices' shipments; `decodeURIComponent` on already-decoded route params, proven with a throwaway test) | 0 | 870 s | 119k / 6.3M / 30k | 79 / 91, ran the changed Vitest files, browser tests, story gate, lint, build |
 | opencode | Winnow#16 (Go, 78 files, 17.2k diff lines) | **0 of 7** | 1 (P2: 500 above the SQLite driver's 25,001 bind params, found by binary search + live probe) | 0 | 917 s | 174k / 7.9M / 6k | 49 / 76, ran build, vet, `-race` tests, the demo script |
 | Pi | Winnow#16 | **0 of 7** | 0 (score 5) | 0 | 763 s | 142k / 4.3M / 36k | 53 / 73, ran build, vet, race, demo, live HTTP and cursor probes |
 
@@ -38,7 +38,7 @@ Copilot's misses on hardware-dashboard were: KPI counts capped by the API's defa
 kill, JSON trailing-garbage compare, cross-millisecond timestamps, `limit=0` coerced, non-atomic `endpoint.json`
 write) are all diff-readable, yet neither agent surfaced them.
 
-**Reading:** the deep review is at parity with a frontier-model reviewer on a ~10k-line PR and clearly ahead on
+**Reading:** with opencode the deep review is at parity with a frontier-model reviewer on a ~10k-line PR (Pi found fewer of Copilot's items there but three real extras) and clearly ahead on
 small PRs, but a single agent with a 15-minute budget does not scale to a 17k-line, 78-file PR: it spends the
 budget proving the system works instead of reading every hunk. That is exactly why Greptile v5 fans out one
 agent per hypothesis. Options, in order of simplicity: (1) cap the deep review at ~10k diff lines and let
