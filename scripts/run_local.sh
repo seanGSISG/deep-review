@@ -15,7 +15,6 @@ cd "$WORK/repo"
 git fetch -q origin "$HEAD" "$BASE" 2>/dev/null || git fetch -q origin "pull/$PR/head"
 git checkout -q "$HEAD"
 mkdir -p .deep-review/signal
-echo '.deep-review/' >> .git/info/exclude  # untracked .deep-review/ hangs opencode at startup
 git diff "$BASE...HEAD" > .deep-review/diff.patch
 gh pr view "$PR" -R "$REPO" --json title,body -q '"# \(.title)\n\n\(.body)"' > .deep-review/pr.md
 sed "s/{{BASE_SHA}}/$BASE/g" "$TOOLS/prompts/review.md" > .deep-review/prompt.md
@@ -25,7 +24,7 @@ STEP_TIMEOUT=${STEP_TIMEOUT:-300} bash "$TOOLS/scripts/collect_signal.sh" >/dev/
 OC=opencode; command -v opencode >/dev/null || OC="npx -y opencode-ai@1.18.31"
 start=$(date +%s)
 timeout "${AGENT_TIMEOUT:-1200}" $OC run --format json --pure --dangerously-skip-permissions -m "$MODEL" \
-  --title "deep-review $SLUG" "$(cat .deep-review/prompt.md)" > .deep-review/agent-events.jsonl 2> .deep-review/agent.err || echo "[$SLUG] agent exit $?"
+  --title "deep-review $SLUG" "$(cat .deep-review/prompt.md)" < /dev/null > .deep-review/agent-events.jsonl  # stdin must be closed or opencode blocks 2> .deep-review/agent.err || echo "[$SLUG] agent exit $?"
 echo "[$SLUG] agent took $(( $(date +%s) - start ))s"
 cp -r .deep-review/. "$RES/"
 python3 - "$RES/agent-events.jsonl" "$RES/findings.json" <<'PY'

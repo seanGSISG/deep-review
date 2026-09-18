@@ -70,8 +70,6 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           mkdir -p .deep-review/signal
-          # opencode hangs at startup when an untracked .deep-review/ sits in the checkout; exclude it from git.
-          echo '.deep-review/' >> .git/info/exclude
           git diff "$BASE_SHA...HEAD" > .deep-review/diff.patch
           printf '# %s\n\n%s\n' "$PR_TITLE" "$PR_BODY" > .deep-review/pr.md
           sed "s/{{BASE_SHA}}/$BASE_SHA/g" .deep-review-tools/prompts/review.md > .deep-review/prompt.md
@@ -87,11 +85,12 @@ jobs:
         run: |
           start=$(date +%s)
           VARIANT_FLAG=""; [ -n "${{ inputs.variant }}" ] && VARIANT_FLAG="--variant ${{ inputs.variant }}"
-          # Prompt is read from a file, so PR text never reaches a shell as an argument list.
+          # Prompt comes from a file, and stdin must be /dev/null: opencode reads piped stdin as extra
+          # input and blocks forever when stdin is an open socket or pipe.
           timeout $(( (${{ inputs.timeout_minutes }} - 5) * 60 )) \
             opencode run --format json --pure --dangerously-skip-permissions \
               -m "${{ inputs.model }}" $VARIANT_FLAG --title "deep-review #${{ github.event.pull_request.number }}" \
-              "$(cat .deep-review/prompt.md)" > .deep-review/agent-events.jsonl 2> .deep-review/agent.err || echo "agent exit $?"
+              "$(cat .deep-review/prompt.md)" < /dev/null > .deep-review/agent-events.jsonl 2> .deep-review/agent.err || echo "agent exit $?"
           echo "elapsed=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
           ls -la .deep-review
 
