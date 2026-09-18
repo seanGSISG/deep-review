@@ -46,7 +46,12 @@ for line in open(sys.argv[1]):
         t = p.get("tokens", {}); tok["input"] += t.get("input", 0); tok["output"] += t.get("output", 0)
         tok["reasoning"] += t.get("reasoning", 0); tok["cache_read"] += t.get("cache", {}).get("read", 0); tok["steps"] += 1
     if p.get("type") == "tool": tools[p.get("tool")] += 1
-    if e.get("type") == "toolCall": tools[(e.get("toolCall") or {}).get("name") or "pi-tool"] += 1
+    # pi (--mode json): usage lives on assistant message_end events, tools on tool_execution_start
+    if e.get("type") == "message_end" and (e.get("message") or {}).get("role") == "assistant":
+        u = e["message"].get("usage") or {}
+        tok["input"] += u.get("input", 0); tok["output"] += u.get("output", 0)
+        tok["cache_read"] += u.get("cacheRead", 0); tok["steps"] += 1
+    if e.get("type") == "tool_execution_start": tools[e.get("toolName") or (e.get("toolCall") or {}).get("name") or "pi-tool"] += 1
 try: n = len(json.load(open(sys.argv[2])).get("findings", []))
 except Exception: n = "none"
 print(f"steps={tok['steps']} tools={dict(tools)} tokens in={tok['input']} cached={tok['cache_read']} out={tok['output']} reasoning={tok['reasoning']} findings={n}")
