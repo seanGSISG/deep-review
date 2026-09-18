@@ -24,6 +24,32 @@ which agent CLI to run it with. Model everywhere: GLM-5.3 on the Z.AI coding pla
 ## Verdict so far
 The deep layer earns its place: on PR #2 it found every planted bug plus real extras that the fast layer missed, with zero noise, in under 5 minutes and for a negligible slice of the Pro plan. opencode is the default harness (best recall here); Pi stays selectable (`agent: pi`) because it was faster and found a real race opencode did not look for on PR #1. Next: run both on the two large real PRs from the 2026-09-12 eval (hardware-dashboard#25, Winnow#16) with `scripts/run_local.sh`, and compare against Kodus once its GitHub App exists.
 
+## Large real PRs (merged, run locally against the head commit, Copilot's 7 inline findings as ground truth)
+
+| Reviewer | PR | Matched Copilot | New real findings | Noise | Time | Tokens (fresh in / cached / out) | Steps / tools |
+|---|---|---|---|---|---|---|---|
+| opencode | hardware-dashboard#25 (React, 39 files, 9.7k diff lines) | **4 of 7** (both sibling pagers ignore `q`, ProvenanceTab flag keys, Shipments "no shipments" while pending) | 2 (200-with-null body hits the generic error branch; "No users match ''" copy) | 0 | 918 s | 168k / 10.0M / 11k | 74 / 96, ran 832 Vitest tests, build, lint, story gate, plus 4 throwaway tests |
+| Pi | hardware-dashboard#25 | _pending_ | | | | | |
+| opencode | Winnow#16 (Go, 78 files, 17.2k diff lines) | **0 of 7** | 1 (P2: 500 above the SQLite driver's 25,001 bind params, found by binary search + live probe) | 0 | 917 s | 174k / 7.9M / 6k | 49 / 76, ran build, vet, `-race` tests, the demo script |
+| Pi | Winnow#16 | **0 of 7** | 0 (score 5) | 0 | 763 s | 142k / 4.3M / 36k | 53 / 73, ran build, vet, race, demo, live HTTP and cursor probes |
+
+Copilot's misses on hardware-dashboard were: KPI counts capped by the API's default limit of 100, a cold deep-link
+"No devices" flash, and missing `h2` landmarks. Its Winnow findings (racy init write, PID not verified before
+kill, JSON trailing-garbage compare, cross-millisecond timestamps, `limit=0` coerced, non-atomic `endpoint.json`
+write) are all diff-readable, yet neither agent surfaced them.
+
+**Reading:** the deep review is at parity with a frontier-model reviewer on a ~10k-line PR and clearly ahead on
+small PRs, but a single agent with a 15-minute budget does not scale to a 17k-line, 78-file PR: it spends the
+budget proving the system works instead of reading every hunk. That is exactly why Greptile v5 fans out one
+agent per hypothesis. Options, in order of simplicity: (1) cap the deep review at ~10k diff lines and let
+PR-Agent's chunked `/review` cover larger PRs; (2) split large diffs by directory and run one agent per slice in
+parallel (matrix job), merging findings in the poster; (3) a first diff-only pass with `glm-5.3-flash` to seed
+hypotheses before the tool-using pass.
+
+**Credits:** a large opencode run consumes ~10M mostly-cached tokens, roughly 2-3% of the Pro plan's weekly
+allowance; opencode's ~63k-token system prompt is most of that. Pi used about half. Fine for a few large PRs a
+week, not for dozens.
+
 ## Observations
 - Both agents ground findings in execution when the prompt demands it; that is the behaviour Greptile's
   TREX sells, and it costs seconds here.
