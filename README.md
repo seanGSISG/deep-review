@@ -26,7 +26,7 @@ gh secret set ZAI_API_KEY --repo <owner>/<repo>
 Fork PRs and drafts are skipped. Re-pushes cancel the in-flight run and replace the comments.
 
 ## Tuning
-- `with.model`: `zai-coding-plan/glm-5.3` (default) or `zai-coding-plan/glm-5.3-flash`.
+- `with.agent`: `opencode` (default) or `pi`. `with.model`: defaults to `zai-coding-plan/glm-5.3` (opencode) or `zai/glm-5.3` (pi); use the `-flash` variants for cheaper runs.
 - `with.variant`: reasoning effort (`high`, `max`, `minimal`), provider-specific.
 - `.github/review-learnings.md` in the reviewed repo: "do not flag" / "always check" rules the
   prompt obeys.

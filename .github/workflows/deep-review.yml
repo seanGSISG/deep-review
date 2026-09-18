@@ -5,10 +5,14 @@ name: deep-review
 on:
   workflow_call:
     inputs:
-      model:
-        description: opencode model id (provider/model)
+      agent:
+        description: agent CLI to run, opencode or pi
         type: string
-        default: zai-coding-plan/glm-5.3
+        default: opencode
+      model:
+        description: model id; opencode uses zai-coding-plan/glm-5.3, pi uses zai/glm-5.3
+        type: string
+        default: ""
       variant:
         description: reasoning effort variant passed to opencode (empty = provider default)
         type: string
@@ -22,6 +26,7 @@ on:
 
 env:
   OPENCODE_VERSION: "1.18.31"
+  PI_VERSION: "0.85.1"
   AST_GREP_VERSION: "0.45.3"
   GITLEAKS_VERSION: "8.30.1"
 
@@ -57,7 +62,7 @@ jobs:
 
       - name: Install opencode, ast-grep, gitleaks
         run: |
-          npm install -g "opencode-ai@${OPENCODE_VERSION}" "@ast-grep/cli@${AST_GREP_VERSION}"
+          npm install -g --ignore-scripts "opencode-ai@${OPENCODE_VERSION}" "@earendil-works/pi-coding-agent@${PI_VERSION}" "@ast-grep/cli@${AST_GREP_VERSION}"
           curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | sudo tar -xz -C /usr/local/bin gitleaks
           git clone --depth 1 https://github.com/coderabbitai/ast-grep-essentials "$RUNNER_TEMP/ast-grep-essentials"
@@ -82,16 +87,31 @@ jobs:
         id: agent
         env:
           ZHIPU_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          AGENT: ${{ inputs.agent }}
+          MODEL_IN: ${{ inputs.model }}
+          VARIANT: ${{ inputs.variant }}
+          BUDGET: ${{ inputs.timeout_minutes }}
         run: |
           start=$(date +%s)
-          VARIANT_FLAG=""; [ -n "${{ inputs.variant }}" ] && VARIANT_FLAG="--variant ${{ inputs.variant }}"
-          # Prompt comes from a file, and stdin must be /dev/null: opencode reads piped stdin as extra
-          # input and blocks forever when stdin is an open socket or pipe.
-          timeout $(( (${{ inputs.timeout_minutes }} - 5) * 60 )) \
-            opencode run --format json --pure --dangerously-skip-permissions \
-              -m "${{ inputs.model }}" $VARIANT_FLAG --title "deep-review #${{ github.event.pull_request.number }}" \
-              "$(cat .deep-review/prompt.md)" < /dev/null > .deep-review/agent-events.jsonl 2> .deep-review/agent.err || echo "agent exit $?"
+          # Prompt comes from a file, and stdin must be /dev/null: the agents read piped stdin as extra
+          # input and block forever when stdin is an open socket or pipe.
+          if [ "$AGENT" = pi ]; then
+            MODEL=${MODEL_IN:-zai/glm-5.3}
+            timeout $(( (BUDGET - 5) * 60 )) \
+              pi -p --mode json --no-session --no-extensions --no-skills --no-prompt-templates \
+                --model "$MODEL" --thinking "${VARIANT:-medium}" \
+                "$(cat .deep-review/prompt.md)" < /dev/null > .deep-review/agent-events.jsonl 2> .deep-review/agent.err || echo "agent exit $?"
+          else
+            MODEL=${MODEL_IN:-zai-coding-plan/glm-5.3}
+            VARIANT_FLAG=""; [ -n "$VARIANT" ] && VARIANT_FLAG="--variant $VARIANT"
+            timeout $(( (BUDGET - 5) * 60 )) \
+              opencode run --format json --pure --dangerously-skip-permissions \
+                -m "$MODEL" $VARIANT_FLAG --title "deep-review #${{ github.event.pull_request.number }}" \
+                "$(cat .deep-review/prompt.md)" < /dev/null > .deep-review/agent-events.jsonl 2> .deep-review/agent.err || echo "agent exit $?"
+          fi
           echo "elapsed=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          echo "model=$AGENT:$MODEL" >> "$GITHUB_OUTPUT"
           ls -la .deep-review
 
       - name: Post review
@@ -101,7 +121,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          MODEL: ${{ inputs.model }}
+          MODEL: ${{ steps.agent.outputs.model }}
           ELAPSED_SECONDS: ${{ steps.agent.outputs.elapsed }}
         run: uv run .deep-review-tools/scripts/post_review.py
 
