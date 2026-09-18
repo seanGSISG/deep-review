@@ -1,0 +1,30 @@
+# Copy to .github/workflows/deep-review.yml in the repo to review, then:
+#   gh secret set ZAI_API_KEY --repo <owner>/<repo>
+name: deep-review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - "**/*.md"
+      - "**/*.lock"
+      - "**/package-lock.json"
+      - "**/pnpm-lock.yaml"
+      - "**/uv.lock"
+      - "**/bun.lock*"
+      - "**/go.sum"
+      - "**/*.min.js"
+      - "**/*.map"
+      - "**/*.snap"
+      - "**/__snapshots__/**"
+      - "**/*.svg"
+      - ".planning/**"
+      - ".aidocs/**"
+jobs:
+  deep-review:
+    if: github.event.pull_request.draft == false
+    uses: seanGSISG/deep-review/.github/workflows/deep-review.yml@main
+    secrets:
+      ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+    # with:
+    #   model: zai-coding-plan/glm-5.3-flash
+    #   variant: high

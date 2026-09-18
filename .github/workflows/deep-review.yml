@@ -1,0 +1,113 @@
+# Reusable deep-review workflow. Callers: see templates/caller.yml.
+# Runs an agent CLI (opencode) with GLM on the Z.AI coding plan against the checked-out PR
+# head. The Actions runner is the sandbox: the agent may grep, read, and run tests.
+name: deep-review
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: opencode model id (provider/model)
+        type: string
+        default: zai-coding-plan/glm-5.3
+      variant:
+        description: reasoning effort variant passed to opencode (empty = provider default)
+        type: string
+        default: ""
+      timeout_minutes:
+        type: number
+        default: 25
+    secrets:
+      ZAI_API_KEY:
+        required: true
+
+env:
+  OPENCODE_VERSION: "1.18.31"
+  AST_GREP_VERSION: "0.45.3"
+  GITLEAKS_VERSION: "8.30.1"
+
+jobs:
+  review:
+    # Drafts are skipped by the caller; fork PRs get no secrets, so skip them here.
+    if: github.event.pull_request.head.repo.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+      pull-requests: write
+    concurrency:
+      group: deep-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout deep-review tooling
+        uses: actions/checkout@v6
+        with:
+          repository: seanGSISG/deep-review
+          path: .deep-review-tools
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install opencode, ast-grep, gitleaks
+        run: |
+          npm install -g "opencode-ai@${OPENCODE_VERSION}" "@ast-grep/cli@${AST_GREP_VERSION}"
+          curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+          git clone --depth 1 https://github.com/coderabbitai/ast-grep-essentials "$RUNNER_TEMP/ast-grep-essentials"
+          echo "AST_GREP_RULES=$RUNNER_TEMP/ast-grep-essentials" >> "$GITHUB_ENV"
+
+      - name: Prepare review inputs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          mkdir -p .deep-review/signal
+          git diff "$BASE_SHA...HEAD" > .deep-review/diff.patch
+          printf '# %s\n\n%s\n' "$PR_TITLE" "$PR_BODY" > .deep-review/pr.md
+          sed "s/{{BASE_SHA}}/$BASE_SHA/g" .deep-review-tools/prompts/review.md > .deep-review/prompt.md
+          echo "diff: $(wc -l < .deep-review/diff.patch) lines, $(git diff --name-only "$BASE_SHA...HEAD" | wc -l) files"
+
+      - name: Collect deterministic signal
+        run: bash .deep-review-tools/scripts/collect_signal.sh
+
+      - name: Run deep review agent
+        id: agent
+        env:
+          ZHIPU_API_KEY: ${{ secrets.ZAI_API_KEY }}
+        run: |
+          start=$(date +%s)
+          VARIANT_FLAG=""; [ -n "${{ inputs.variant }}" ] && VARIANT_FLAG="--variant ${{ inputs.variant }}"
+          # Prompt is read from a file, so PR text never reaches a shell as an argument list.
+          timeout $(( (${{ inputs.timeout_minutes }} - 5) * 60 )) \
+            opencode run --format json --pure --dangerously-skip-permissions \
+              -m "${{ inputs.model }}" $VARIANT_FLAG --title "deep-review #${{ github.event.pull_request.number }}" \
+              "$(cat .deep-review/prompt.md)" > .deep-review/agent-events.jsonl 2> .deep-review/agent.err || echo "agent exit $?"
+          echo "elapsed=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+          ls -la .deep-review
+
+      - name: Post review
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MODEL: ${{ inputs.model }}
+          ELAPSED_SECONDS: ${{ steps.agent.outputs.elapsed }}
+        run: uv run .deep-review-tools/scripts/post_review.py
+
+      - name: Upload run artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deep-review-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+          path: .deep-review
+          retention-days: 14
