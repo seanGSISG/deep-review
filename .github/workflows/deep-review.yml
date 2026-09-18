@@ -62,7 +62,10 @@ jobs:
 
       - name: Install opencode, ast-grep, gitleaks
         run: |
-          npm install -g --ignore-scripts "opencode-ai@${OPENCODE_VERSION}" "@earendil-works/pi-coding-agent@${PI_VERSION}" "@ast-grep/cli@${AST_GREP_VERSION}"
+          # opencode fetches its platform binary in a postinstall script, so it must not be installed with --ignore-scripts.
+          npm install -g "opencode-ai@${OPENCODE_VERSION}" "@ast-grep/cli@${AST_GREP_VERSION}"
+          npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}"
+          opencode --version && pi --version && ast-grep --version
           curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | sudo tar -xz -C /usr/local/bin gitleaks
           git clone --depth 1 https://github.com/coderabbitai/ast-grep-essentials "$RUNNER_TEMP/ast-grep-essentials"
@@ -113,6 +116,7 @@ jobs:
           echo "elapsed=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
           echo "model=$AGENT:$MODEL" >> "$GITHUB_OUTPUT"
           ls -la .deep-review
+          echo "--- agent stderr (tail)"; tail -n 20 .deep-review/agent.err || true
 
       - name: Post review
         if: always()
@@ -131,4 +135,5 @@ jobs:
         with:
           name: deep-review-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
           path: .deep-review
+          include-hidden-files: true # the directory itself is dot-prefixed
           retention-days: 14
