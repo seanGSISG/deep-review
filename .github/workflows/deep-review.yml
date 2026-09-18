@@ -70,6 +70,8 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           mkdir -p .deep-review/signal
+          # opencode hangs at startup when an untracked .deep-review/ sits in the checkout; exclude it from git.
+          echo '.deep-review/' >> .git/info/exclude
           git diff "$BASE_SHA...HEAD" > .deep-review/diff.patch
           printf '# %s\n\n%s\n' "$PR_TITLE" "$PR_BODY" > .deep-review/pr.md
           sed "s/{{BASE_SHA}}/$BASE_SHA/g" .deep-review-tools/prompts/review.md > .deep-review/prompt.md
