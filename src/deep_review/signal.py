@@ -21,10 +21,9 @@ from collections.abc import Callable, Iterator
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import IO
 
 from deep_review.git import RUN_DIR_NAME
-from deep_review.process import run_capped
+from deep_review.process import run_streamed
 
 # Where a Run's Signal files land, inside the Run directory.
 SIGNAL_DIR_NAME = "signal"
@@ -272,40 +271,22 @@ def _backing_off(cache: Path) -> bool:
 def _run_step(repo: Path, signal_dir: Path, step: Step) -> Path | None:
     """
     Run one tool and write its Signal file: the command, its combined output capped at the last
-    OUTPUT_CAP_BYTES bytes, and how it ended.
-
-    Output goes to an unlinked scratch file rather than a pipe: a tool that talks faster than
-    anything drains it would deadlock on a pipe, and only the last bytes are ever read back, so
-    noise costs temporary disk instead of memory. The scratch file itself is deliberately not
-    capped — a tool that emitted gigabytes inside its 300s would need room for all of them, which
-    is the one thing the shell's `| tail -c` bounded and this does not.
+    OUTPUT_CAP_BYTES bytes, and how it ended. The cap is applied as the output arrives rather than
+    afterwards, so a tool that never stops printing costs a Run no more than a quiet one does.
     """
     if shutil.which(step.argv[0]) is None:
         return None
     path = signal_dir / f"{step.name}.txt"
     cap = STEP_TIMEOUT_SECONDS
     try:
-        with tempfile.TemporaryFile() as output:
-            code = run_capped(
-                step.argv,
-                cwd=repo,
-                stdout=output,
-                stderr=subprocess.STDOUT,
-                timeout_seconds=cap,
-            )
-            body, dropped = _tail(output, OUTPUT_CAP_BYTES)
+        output, dropped, code = run_streamed(
+            step.argv, cwd=repo, timeout_seconds=cap, cap=OUTPUT_CAP_BYTES
+        )
+        body = output.decode("utf-8", errors="replace")
         path.write_text(_compose(step, body, dropped, code, cap), encoding="utf-8")
     except OSError:
         return None
     return path
-
-
-def _tail(output: IO[bytes], cap: int) -> tuple[str, int]:
-    """The last `cap` bytes a tool wrote, and how many earlier ones that left behind."""
-    size = output.seek(0, os.SEEK_END)
-    dropped = max(0, size - cap)
-    output.seek(dropped)
-    return output.read().decode("utf-8", errors="replace"), dropped
 
 
 def _compose(step: Step, body: str, dropped: int, code: int | None, cap: float) -> str:

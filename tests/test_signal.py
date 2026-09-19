@@ -232,3 +232,19 @@ def test_a_failed_clone_is_not_retried_by_every_run_that_follows(
 
     assert ast_grep_rules() == cache
     assert tried > 0
+
+
+def test_a_tool_that_leaves_a_child_holding_the_pipe_does_not_hold_up_the_run(
+    repo: Path, tools: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(signal, "STEP_TIMEOUT_SECONDS", 30.0)
+    write(repo, "go.mod", "module example.com/app\n")
+    stub(tools, "go", "echo done\nsleep 20 &\nexit 0")
+
+    started = time.monotonic()
+    collect(repo, repo / ".deep-review")
+
+    assert time.monotonic() - started < 10, "the Run waited on a pipe nobody was going to close"
+    vet = (signal_dir(repo) / "go-vet.txt").read_text(encoding="utf-8")
+    assert "done" in vet
+    assert vet.endswith("[exit 0]\n"), "the tool's own exit code is what gets reported"

@@ -1,12 +1,20 @@
 """Running a child process under a time cap, leaving nothing behind when the cap expires."""
 
 import os
+import select
 import signal
 import subprocess
+import time
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
 from typing import IO
+
+# How often a streamed read looks up from the pipe to ask whether the child is still alive.
+POLL_SECONDS = 0.2
+
+# How much is taken off the pipe at a time.
+READ_BYTES = 65_536
 
 
 def run_capped(
@@ -41,6 +49,64 @@ def run_capped(
     except subprocess.TimeoutExpired:
         _kill_group(process)
         return None
+
+
+def run_streamed(
+    argv: Sequence[str],
+    *,
+    cwd: Path,
+    timeout_seconds: float,
+    cap: int,
+) -> tuple[bytes, int, int | None]:
+    """
+    Run a command and keep only the last `cap` bytes it printed, dropping the rest as it arrives.
+    Returns those bytes, how many earlier ones they replaced, and the exit code — or None for the
+    code when the cap killed it. stdout and stderr come back interleaved in the order they were
+    written, and a tool that prints for its whole time cap costs no more than one that prints a
+    line: nothing beyond `cap` is ever held, on disk or in memory.
+
+    Waiting ends when the *tool* ends, not when the last writer to its pipe does. A tool that
+    leaves a daemon holding the pipe must not cost the caller its whole cap staring at a pipe
+    nobody is going to close.
+    """
+    process = subprocess.Popen(
+        list(argv),
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    kept = bytearray()
+    dropped = 0
+    code: int | None = None
+    deadline = time.monotonic() + timeout_seconds
+    stream = process.stdout
+    if stream is None:  # unreachable with stdout=PIPE above; the type cannot say so
+        _kill_group(process)
+        return b"", 0, None
+    with stream:
+        # Read the descriptor directly: the pipe is drained by select, and going through the
+        # buffered object as well would only put the same bytes in two places.
+        pipe = stream.fileno()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _kill_group(process)
+                break
+            if select.select([pipe], [], [], min(remaining, POLL_SECONDS))[0]:
+                chunk = os.read(pipe, READ_BYTES)
+                if not chunk:
+                    # Every writer is gone, so there is nothing left to come.
+                    code = process.wait()
+                    break
+                kept += chunk
+                if len(kept) > cap:
+                    dropped += len(kept) - cap
+                    del kept[: len(kept) - cap]
+            elif (code := process.poll()) is not None:
+                break
+    return bytes(kept), dropped, code
 
 
 def _kill_group(process: subprocess.Popen[bytes]) -> None:
