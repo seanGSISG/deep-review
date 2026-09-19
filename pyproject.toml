@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "deep-review"
+version = "0.1.0"
+description = "A second-opinion pull-request reviewer: a Reviewer of a different model family proves defects by execution and quotation"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = ["pydantic>=2.9"]
+
+[project.scripts]
+deep-review = "deep_review.cli:run"
+
+[project.urls]
+Homepage = "https://github.com/seanGSISG/deep-review"
+
+[dependency-groups]
+dev = ["pytest>=8.3", "ruff>=0.14", "ty>=0.0.1a21"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/deep_review"]
+
+# The review prompt lives at the repo root as its single source and is mapped into the wheel,
+# where the CLI reads it back through importlib.resources.
+[tool.hatch.build.targets.wheel.force-include]
+"prompts/review.md" = "deep_review/_data/review.md"
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+# scripts/ holds the shell and PEP 723 implementations still being ported into the package.
+exclude = ["scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
