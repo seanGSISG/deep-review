@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from deep_review import UsageError, __version__
-from deep_review.git import build_diff, exclude_run_dir, repo_root, resolve_base
+from deep_review.git import build_diff, repo_root, resolve_base
 from deep_review.local import local_description, write_run_inputs
 
 
@@ -34,7 +34,8 @@ def _parser() -> argparse.ArgumentParser:
     review.add_argument(
         "--base",
         metavar="REF",
-        help="measure the Diff from this ref instead of origin/main, main or master",
+        help="measure the Diff from the merge-base with this ref, "
+        "instead of origin/main, main or master",
     )
     return parser
 
@@ -45,7 +46,6 @@ def _review(args: argparse.Namespace) -> int:
     An empty Diff is nothing to review, so it is skipped rather than treated as an error.
     """
     repo = repo_root(Path.cwd())
-    exclude_run_dir(repo)
     base = resolve_base(repo, args.base)
     diff = build_diff(repo, base.sha)
     if not diff.strip():
@@ -53,7 +53,7 @@ def _review(args: argparse.Namespace) -> int:
         return 0
     inputs = write_run_inputs(repo, base, diff, local_description(repo, base))
     print(f"base    {base.sha[:8]} (merge-base with {base.ref})")
-    print(f"diff    {inputs.diff_path.relative_to(repo)} ({inputs.patch_lines} lines)")
+    print(f"diff    {inputs.diff_path.relative_to(repo)} ({inputs.diff_lines} lines)")
     print(f"pr      {inputs.description_path.relative_to(repo)}")
     print(f"prompt  {inputs.prompt_path.relative_to(repo)}")
     return 0

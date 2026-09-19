@@ -25,21 +25,37 @@ class Base:
 
 
 def run_git(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
-    """Run a git command in the checkout and return its stdout verbatim."""
+    """
+    Run a git command in the checkout and return its stdout verbatim. Output is decoded leniently
+    because a Diff carries whatever encoding the source files use, and one latin-1 file in the
+    change must not crash the Run.
+    """
     result = subprocess.run(
-        ["git", *args], cwd=repo, env=env, check=True, capture_output=True, text=True
+        ["git", *args],
+        cwd=repo,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+        errors="replace",
     )
     return result.stdout
 
 
+def try_git(repo: Path, *args: str) -> str | None:
+    """Run a git command that is allowed to fail, returning its stripped stdout or None."""
+    result = subprocess.run(
+        ["git", *args], cwd=repo, capture_output=True, text=True, errors="replace"
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
 def repo_root(start: Path) -> Path:
     """The top level of the checkout containing `start`, or a usage error outside one."""
-    result = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], cwd=start, capture_output=True, text=True
-    )
-    if result.returncode != 0:
+    root = try_git(start, "rev-parse", "--show-toplevel")
+    if root is None:
         raise UsageError(f"{start} is not inside a git checkout")
-    return Path(result.stdout.strip())
+    return Path(root)
 
 
 def resolve_base(repo: Path, ref: str | None) -> Base:
@@ -48,25 +64,19 @@ def resolve_base(repo: Path, ref: str | None) -> Base:
     main and master that exists. With none of them the caller has to say, so this is a usage error.
     """
     if ref is not None:
-        sha = _merge_base(repo, ref)
+        sha = try_git(repo, "merge-base", "HEAD", ref)
         if sha is None:
-            raise UsageError(f"cannot measure from {ref!r}: no such ref in this checkout")
+            raise UsageError(
+                f"cannot measure from {ref!r}: no such ref, or no history shared with HEAD"
+            )
         return Base(sha=sha, ref=ref)
     for candidate in BASE_CANDIDATES:
-        sha = _merge_base(repo, candidate)
+        sha = try_git(repo, "merge-base", "HEAD", candidate)
         if sha is not None:
             return Base(sha=sha, ref=candidate)
     raise UsageError(
         "no origin/main, main or master to measure from; pass --base REF to say what to diff from"
     )
-
-
-def _merge_base(repo: Path, ref: str) -> str | None:
-    """The merge-base of HEAD and `ref`, or None when the ref is unknown or unrelated."""
-    result = subprocess.run(
-        ["git", "merge-base", "HEAD", ref], cwd=repo, capture_output=True, text=True
-    )
-    return result.stdout.strip() if result.returncode == 0 else None
 
 
 def build_diff(repo: Path, base_sha: str) -> str:
@@ -102,12 +112,8 @@ def exclude_run_dir(repo: Path) -> None:
 
 def current_branch(repo: Path) -> str:
     """The checked-out branch, or a note naming the commit when HEAD is detached."""
-    result = subprocess.run(
-        ["git", "symbolic-ref", "--short", "-q", "HEAD"], cwd=repo, capture_output=True, text=True
-    )
-    if result.returncode == 0:
-        return result.stdout.strip()
-    return f"detached at {run_git(repo, 'rev-parse', '--short', 'HEAD').strip()}"
+    branch = try_git(repo, "symbolic-ref", "--short", "-q", "HEAD")
+    return branch or f"detached at {run_git(repo, 'rev-parse', '--short', 'HEAD').strip()}"
 
 
 def commit_log(repo: Path, base_sha: str) -> str:

@@ -49,6 +49,7 @@ def test_review_without_a_resolvable_base_exits_2(
     assert main(["review"]) == 2
 
     assert "--base" in capsys.readouterr().err
+    assert ".deep-review" not in (repo / ".git" / "info" / "exclude").read_text(encoding="utf-8")
 
 
 def test_review_takes_an_explicit_base(

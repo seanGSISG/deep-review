@@ -3,7 +3,14 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from deep_review.git import RUN_DIR_NAME, Base, commit_log, current_branch, is_dirty
+from deep_review.git import (
+    RUN_DIR_NAME,
+    Base,
+    commit_log,
+    current_branch,
+    exclude_run_dir,
+    is_dirty,
+)
 from deep_review.resources import review_prompt
 
 DIFF_NAME = "diff.patch"
@@ -19,7 +26,7 @@ class RunInputs:
     diff_path: Path
     description_path: Path
     prompt_path: Path
-    patch_lines: int
+    diff_lines: int
 
 
 def local_description(repo: Path, base: Base) -> str:
@@ -35,15 +42,19 @@ def local_description(repo: Path, base: Base) -> str:
 
 
 def write_run_inputs(repo: Path, base: Base, diff: str, description: str) -> RunInputs:
-    """Write the Run's inputs under .deep-review/: the patch, the description and the prompt."""
+    """
+    Write the Run's inputs under .deep-review/: the patch, the description and the prompt. Creating
+    the Run directory is also what keeps it out of git, so the two cannot drift apart.
+    """
     run_dir = repo / RUN_DIR_NAME
     run_dir.mkdir(parents=True, exist_ok=True)
+    exclude_run_dir(repo)
     inputs = RunInputs(
         run_dir=run_dir,
         diff_path=run_dir / DIFF_NAME,
         description_path=run_dir / DESCRIPTION_NAME,
         prompt_path=run_dir / PROMPT_NAME,
-        patch_lines=diff.count("\n"),
+        diff_lines=diff.count("\n"),
     )
     inputs.diff_path.write_text(diff, encoding="utf-8")
     inputs.description_path.write_text(description, encoding="utf-8")

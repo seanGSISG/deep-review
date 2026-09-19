@@ -67,6 +67,16 @@ def test_unknown_explicit_base_is_a_usage_error(repo: Path) -> None:
         resolve_base(repo, "no-such-ref")
 
 
+def test_a_base_sharing_no_history_says_so(repo: Path) -> None:
+    git(repo, "checkout", "-q", "--orphan", "unrelated")
+    write(repo, "other.py", "OTHER = True\n")
+    commit(repo, "init: unrelated history")
+    git(repo, "checkout", "-q", "main")
+
+    with pytest.raises(UsageError, match="no history shared with HEAD"):
+        resolve_base(repo, "unrelated")
+
+
 def test_diff_covers_committed_uncommitted_and_untracked_work(repo: Path) -> None:
     start = branch_off(repo, "feat/retries")
     write(repo, "app.py", "def ship(order):\n    return order.id\n")
@@ -93,6 +103,13 @@ def test_diff_leaves_the_real_index_alone(repo: Path) -> None:
     build_diff(repo, start)
 
     assert git(repo, "status", "--porcelain") == before
+
+
+def test_diff_survives_a_file_that_is_not_utf_8(repo: Path) -> None:
+    start = git(repo, "rev-parse", "HEAD")
+    (repo / "latin.py").write_bytes(b"CAFE = 'caf\xe9'\n")
+
+    assert "latin.py" in build_diff(repo, start)
 
 
 def test_diff_is_empty_when_nothing_changed(repo: Path) -> None:

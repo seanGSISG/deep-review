@@ -15,7 +15,8 @@ def test_inputs_land_in_the_run_directory(repo: Path) -> None:
     assert inputs.diff_path == repo / ".deep-review" / "diff.patch"
     assert inputs.diff_path.read_text(encoding="utf-8") == "diff --git a/app.py b/app.py\n"
     assert inputs.description_path.read_text(encoding="utf-8") == "# main\n"
-    assert inputs.patch_lines == 1
+    assert ".deep-review/" in (repo / ".git" / "info" / "exclude").read_text(encoding="utf-8")
+    assert inputs.diff_lines == 1
 
 
 def test_the_prompt_has_the_base_sha_substituted(repo: Path) -> None:
