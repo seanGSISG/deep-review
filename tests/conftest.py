@@ -8,7 +8,22 @@ from pathlib import Path
 
 import pytest
 
-from deep_review.reviewer import OPENCODE, PI, Reviewer
+from deep_review.reviewer import OPENCODE, PI, REVIEWERS, Reviewer
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """
+    `--reviewer NAME` narrows the live Runs to one Reviewer. Each Run spends Z.AI credits, so
+    running every Reviewer when only one of them changed is real money.
+
+    `-k NAME` is not a substitute and quietly is not: the live params carry a `skipif` mark, and
+    "skipif" contains "pi", so `-k pi` matches every Reviewer rather than pi.
+    """
+    parser.addoption(
+        "--reviewer",
+        choices=sorted(REVIEWERS),
+        help="run the live test against only this Reviewer (default: every one installed)",
+    )
 
 
 def git(repo: Path, *args: str) -> str:

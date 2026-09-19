@@ -39,10 +39,16 @@ UNGUARDED = """def average(values: list[float]) -> float:
 """
 
 
-@pytest.mark.parametrize("agent", SELECTABLE)
+@pytest.mark.parametrize("selected", SELECTABLE)
 def test_a_real_run_produces_a_valid_report(
-    agent: str, repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    selected: str,
+    repo: Path,
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
+    if (only := request.config.getoption("--reviewer")) and only != selected:
+        pytest.skip(f"--reviewer {only}")
     write(repo, "stats.py", GUARDED)
     commit(repo, "feat: average a list")
     git(repo, "update-ref", "refs/remotes/origin/main", git(repo, "rev-parse", "HEAD"))
@@ -51,16 +57,16 @@ def test_a_real_run_produces_a_valid_report(
     commit(repo, "refactor: drop the empty-list guard")
     monkeypatch.chdir(repo)
 
-    assert main(["review", "--agent", agent, "--timeout", "6"]) == 0
+    assert main(["review", "--agent", selected, "--timeout", "6"]) == 0
 
     report = Report.model_validate_json(
         (repo / ".deep-review" / "findings.json").read_text(encoding="utf-8")
     )
     assert report.status == "ok", report.notice
     assert report.stats.seconds is not None
-    assert report.stats.agent == agent
+    assert report.stats.agent == selected
     # A Run whose stream went unread would report a Report and no numbers, which is the one way
     # this can pass while the Reviewer's own parser is reading the wrong shape.
     assert report.stats.input_tokens > 0, "the Run reported no tokens"
     with capsys.disabled():
-        print(f"\n{agent}: {report.stats.seconds:g}s, {len(report.findings)} findings")
+        print(f"\n{selected}: {report.stats.seconds:g}s, {len(report.findings)} findings")
