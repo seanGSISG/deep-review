@@ -9,9 +9,11 @@ It complements, not replaces, the stock PR-Agent deployment (`/describe`, `/revi
 
 ## How a run works
 1. Checkout the PR head; write `.deep-review/diff.patch` and `.deep-review/pr.md`.
-2. `scripts/collect_signal.sh`: run the repo's own `just test|lint` / package scripts / ruff+pytest /
-   go vet+test, plus gitleaks and ast-grep with CodeRabbit's essentials rules. Output lands in
-   `.deep-review/signal/` as *hypotheses* for the agent, never as findings on their own.
+2. Signal collection (`deep_review.signal`): run the repo's own `just test|lint` / package scripts /
+   ruff+pytest / go vet+test / cargo, plus gitleaks and ast-grep with CodeRabbit's essentials rules.
+   Each tool is capped at 300s and 60,000 bytes, a missing one is a skip, and none of them can fail
+   the run. Output lands in `.deep-review/signal/` as *hypotheses* for the agent, never as findings
+   on their own.
 3. `prompts/review.md`: scope → investigate (grep, read, run) → judge. The agent writes
    `.deep-review/findings.json` (P0/P1/P2, evidence, failure scenario, optional fix, 0-5 score).
 4. `scripts/post_review.py`: deletes the previous run's inline comments, posts one review with

@@ -30,6 +30,17 @@ def commit(repo: Path, message: str) -> str:
     return git(repo, "rev-parse", "HEAD")
 
 
+@pytest.fixture(autouse=True)
+def isolated_rules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Keep the ast-grep rule pack out of the suite. Every Run collects Signal, so without this a
+    test on a machine with ast-grep would clone the pack from GitHub and leave it in the
+    developer's own cache. The tests that are about the rules point these somewhere real.
+    """
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("AST_GREP_RULES", str(tmp_path / "no-rules"))
+
+
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     """A checkout on `main` with one commit and a .gitignore."""

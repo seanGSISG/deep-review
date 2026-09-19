@@ -21,7 +21,9 @@ gh pr view "$PR" -R "$REPO" --json title,body -q '"# \(.title)\n\n\(.body)"' > .
 sed "s/{{BASE_SHA}}/$BASE/g" "$TOOLS/prompts/review.md" > .deep-review/prompt.md
 echo "[$SLUG] head=${HEAD:0:8} base=${BASE:0:8} diff=$(wc -l < .deep-review/diff.patch) lines"
 
-STEP_TIMEOUT=${STEP_TIMEOUT:-300} bash "$TOOLS/scripts/collect_signal.sh" >/dev/null 2>&1 || true
+# Signal collection lives in the package now; Deliverable 3 replaces this whole script with
+# one `deep-review review` call.
+uv run --project "$TOOLS" python -m deep_review.signal >/dev/null 2>&1 || true
 start=$(date +%s)
 if [ "$AGENT" = pi ]; then
   timeout "${AGENT_TIMEOUT:-1200}" pi -p --mode json --no-session --no-extensions --no-skills --no-prompt-templates \

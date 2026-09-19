@@ -84,7 +84,9 @@ jobs:
           echo "diff: $(wc -l < .deep-review/diff.patch) lines, $(git diff --name-only "$BASE_SHA...HEAD" | wc -l) files"
 
       - name: Collect deterministic signal
-        run: bash .deep-review-tools/scripts/collect_signal.sh
+        # Signal collection lives in the package now. Deliverable 3 installs the CLI and replaces
+        # this step, and everything around it, with one `deep-review review --pr` call.
+        run: uv run --project .deep-review-tools python -m deep_review.signal
 
       - name: Run deep review agent
         id: agent

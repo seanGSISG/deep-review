@@ -2,14 +2,12 @@
 
 import os
 import shutil
-import signal
-import subprocess
 import time
-from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
 from deep_review import UsageError
+from deep_review.process import run_capped
 
 # What the Reviewer leaves in the Run directory.
 FINDINGS_NAME = "findings.json"
@@ -116,10 +114,9 @@ def invoke(
 ) -> Outcome:
     """
     Run the Reviewer in the checkout and wait for it, capturing its event stream and its stderr
-    beside the Run's inputs. Three details here are load-bearing, and all three cost hours when
-    they are missing: the prompt goes as a single argv element and is never piped, stdin is
-    /dev/null or the CLI blocks forever before its first model call, and the process gets its own
-    group so the time cap can kill the model call and the tools it left running along with it.
+    beside the Run's inputs. The prompt goes as a single argv element and is never piped: an agent
+    CLI reads a piped prompt as something else entirely. The rest of the care this needs — stdin,
+    the output files, the process group the time cap kills — lives in `run_capped`.
     """
     argv = [
         reviewer.binary,
@@ -138,29 +135,12 @@ def invoke(
         (run_dir / EVENTS_NAME).open("wb") as events,
         (run_dir / STDERR_NAME).open("wb") as errors,
     ):
-        process = subprocess.Popen(
+        code = run_capped(
             argv,
             cwd=repo,
             env=environment,
-            stdin=subprocess.DEVNULL,
             stdout=events,
             stderr=errors,
-            start_new_session=True,
+            timeout_seconds=timeout_seconds,
         )
-        try:
-            code: int | None = process.wait(timeout=timeout_seconds)
-        except subprocess.TimeoutExpired:
-            _kill_group(process)
-            code = None
     return Outcome(exit_code=code, seconds=time.monotonic() - started)
-
-
-def _kill_group(process: subprocess.Popen[bytes]) -> None:
-    """
-    Kill the Reviewer and everything it spawned. start_new_session made it a process group leader,
-    so one signal reaches the model call and any tool still running under it. Nothing is worth
-    flushing in a Run being abandoned, so it goes straight to SIGKILL.
-    """
-    with suppress(ProcessLookupError):
-        os.killpg(process.pid, signal.SIGKILL)
-    process.wait()

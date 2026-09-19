@@ -93,6 +93,8 @@ def test_the_reviewer_reads_the_runs_inputs_in_the_checkout(
     assert reviewer.cwd == branch
     assert "findings.json" in reviewer.argv[-1]  # the prompt, as one argument
     assert (branch / ".deep-review" / "diff.patch").read_text(encoding="utf-8")
+    # What each tool wrote is tests/test_signal.py's business; that a Run collects at all is this.
+    assert (branch / ".deep-review" / "signal").is_dir()
 
 
 def test_json_prints_the_whole_report_and_nothing_else(
@@ -209,6 +211,9 @@ def test_a_diff_over_the_size_gate_skips_the_reviewer(
     assert "the Reviewer did not run" in out
     assert "tokens" not in out  # a Reviewer that never ran spent nothing to say so
     assert not reviewer.ran
+    assert not (branch / ".deep-review" / "signal").exists(), (
+        "the gate is meant to skip the Run's cost, and Signal collection is most of what is left"
+    )
     assert report_on_disk(branch)["status"] == "skipped"
 
 

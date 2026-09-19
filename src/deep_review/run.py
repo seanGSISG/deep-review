@@ -8,6 +8,7 @@ from deep_review.git import RUN_DIR_NAME, Base, Diff
 from deep_review.local import write_run_inputs
 from deep_review.report import Report, RunStats, read_findings, serialise
 from deep_review.reviewer import EVENTS_NAME, FINDINGS_NAME, STDERR_NAME, Outcome, Reviewer, invoke
+from deep_review.signal import collect
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,9 @@ def execute(
     # The previous Run's findings file has to go: a Reviewer that dies before writing one would
     # otherwise leave the last Run's Report looking like this one's.
     findings_path.unlink(missing_ok=True)
+    # Hypotheses for the Reviewer to open on. Nothing collected here can fail the Run, so there is
+    # nothing to check: a tool that is missing or broken just leaves the Reviewer a colder repo.
+    collect(repo, inputs.run_dir)
     outcome = invoke(
         options.reviewer,
         repo=repo,
