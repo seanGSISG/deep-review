@@ -6,6 +6,7 @@ from pathlib import Path
 from deep_review.git import (
     RUN_DIR_NAME,
     Base,
+    Diff,
     commit_log,
     current_branch,
     exclude_run_dir,
@@ -26,7 +27,6 @@ class RunInputs:
     diff_path: Path
     description_path: Path
     prompt_path: Path
-    diff_lines: int
 
 
 def local_description(repo: Path, base: Base) -> str:
@@ -41,9 +41,9 @@ def local_description(repo: Path, base: Base) -> str:
     return f"# {current_branch(repo)}\n\n{scope}.\n\n{log or 'No commits since the Base.'}\n"
 
 
-def write_run_inputs(repo: Path, base: Base, diff: str, description: str) -> RunInputs:
+def write_run_inputs(repo: Path, base: Base, diff: Diff, description: str) -> RunInputs:
     """
-    Write the Run's inputs under .deep-review/: the patch, the description and the prompt. Creating
+    Write the Run's inputs under .deep-review/: the Diff, the description and the prompt. Creating
     the Run directory is also what keeps it out of git, so the two cannot drift apart.
     """
     run_dir = repo / RUN_DIR_NAME
@@ -54,9 +54,8 @@ def write_run_inputs(repo: Path, base: Base, diff: str, description: str) -> Run
         diff_path=run_dir / DIFF_NAME,
         description_path=run_dir / DESCRIPTION_NAME,
         prompt_path=run_dir / PROMPT_NAME,
-        diff_lines=diff.count("\n"),
     )
-    inputs.diff_path.write_text(diff, encoding="utf-8")
+    inputs.diff_path.write_text(diff.text, encoding="utf-8")
     inputs.description_path.write_text(description, encoding="utf-8")
     inputs.prompt_path.write_text(review_prompt(base.sha), encoding="utf-8")
     return inputs

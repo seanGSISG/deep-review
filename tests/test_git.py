@@ -85,12 +85,21 @@ def test_diff_covers_committed_uncommitted_and_untracked_work(repo: Path) -> Non
     write(repo, "retries.py", "MAX_RETRIES = 3\n")
     write(repo, "secrets/key.txt", "shhh\n")
 
-    diff = build_diff(repo, start)
+    text = build_diff(repo, start).text
 
-    assert "return order.id" in diff  # committed since the base
-    assert "return order.id or 0" in diff  # uncommitted
-    assert "MAX_RETRIES = 3" in diff  # untracked, added as intent-to-add
-    assert "secrets/key.txt" not in diff  # gitignored
+    assert "return order.id" in text  # committed since the base
+    assert "return order.id or 0" in text  # uncommitted
+    assert "MAX_RETRIES = 3" in text  # untracked, added as intent-to-add
+    assert "secrets/key.txt" not in text  # gitignored
+
+
+def test_diff_size_counts_added_plus_removed_lines(repo: Path) -> None:
+    start = branch_off(repo, "feat/retries")
+    write(repo, "app.py", "def ship(order):\n    return order.id\n")  # one line for one
+    write(repo, "retries.py", "MAX_RETRIES = 3\nBACKOFF = 2\n")  # two added
+    (repo / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n" + bytes(64))  # binary, uncountable
+
+    assert build_diff(repo, start).changed_lines == 4
 
 
 def test_diff_leaves_the_real_index_alone(repo: Path) -> None:
@@ -109,11 +118,13 @@ def test_diff_survives_a_file_that_is_not_utf_8(repo: Path) -> None:
     start = git(repo, "rev-parse", "HEAD")
     (repo / "latin.py").write_bytes(b"CAFE = 'caf\xe9'\n")
 
-    assert "latin.py" in build_diff(repo, start)
+    assert "latin.py" in build_diff(repo, start).text
 
 
 def test_diff_is_empty_when_nothing_changed(repo: Path) -> None:
-    assert build_diff(repo, git(repo, "rev-parse", "HEAD")) == ""
+    diff = build_diff(repo, git(repo, "rev-parse", "HEAD"))
+
+    assert (diff.text, diff.changed_lines) == ("", 0)
 
 
 def test_exclude_run_dir_appends_once_and_leaves_gitignore_alone(repo: Path) -> None:

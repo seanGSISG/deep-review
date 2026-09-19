@@ -4,6 +4,8 @@ import os
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,6 +16,14 @@ RUN_DIR_NAME = ".deep-review"
 
 # Tried in order when --base is not given.
 BASE_CANDIDATES = ("origin/main", "main", "master")
+
+
+@dataclass(frozen=True, slots=True)
+class Diff:
+    """The change under review: the text the Reviewer reads, and the size the Size gate measures."""
+
+    text: str
+    changed_lines: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,11 +89,24 @@ def resolve_base(repo: Path, ref: str | None) -> Base:
     )
 
 
-def build_diff(repo: Path, base_sha: str) -> str:
+def build_diff(repo: Path, base_sha: str) -> Diff:
     """
     The Diff: the Base against the working tree, so committed, uncommitted and untracked work are
-    all reviewed. Untracked files are added as intent-to-add to a *copy* of the index, which leaves
-    the developer's staging area untouched.
+    all reviewed. Its size comes from --numstat rather than counting the diff's own +/- lines,
+    which a removed line reading "--" would throw off.
+    """
+    with _scratch_index(repo) as env:
+        return Diff(
+            text=run_git(repo, "diff", base_sha, env=env),
+            changed_lines=_changed_lines(run_git(repo, "diff", "--numstat", base_sha, env=env)),
+        )
+
+
+@contextmanager
+def _scratch_index(repo: Path) -> Iterator[dict[str, str]]:
+    """
+    An environment pointing git at a throwaway copy of the index with untracked files added as
+    intent-to-add, so new files are part of the Diff and the developer's staging area is untouched.
     """
     with tempfile.TemporaryDirectory(prefix="deep-review-") as scratch:
         index = Path(scratch) / "index"
@@ -92,7 +115,20 @@ def build_diff(repo: Path, base_sha: str) -> str:
             shutil.copy(real_index, index)
         env = {**os.environ, "GIT_INDEX_FILE": str(index)}
         run_git(repo, "add", "--intent-to-add", "--all", env=env)
-        return run_git(repo, "diff", base_sha, env=env)
+        yield env
+
+
+def _changed_lines(numstat: str) -> int:
+    """
+    Added plus removed lines across the Diff, which is what the Size gate measures. A binary file's
+    counts are "-" and add nothing: the gate is about how much code the Reviewer has to read.
+    """
+    total = 0
+    for row in numstat.splitlines():
+        added, _, rest = row.partition("\t")
+        removed, _, _ = rest.partition("\t")
+        total += sum(int(count) for count in (added, removed) if count.isdigit())
+    return total
 
 
 def exclude_run_dir(repo: Path) -> None:

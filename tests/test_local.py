@@ -3,26 +3,27 @@
 from pathlib import Path
 
 from conftest import commit, git, write
-from deep_review.git import Base
+from deep_review.git import Base, Diff
 from deep_review.local import local_description, write_run_inputs
+
+DIFF = "diff --git a/app.py b/app.py\n"
 
 
 def test_inputs_land_in_the_run_directory(repo: Path) -> None:
     base = Base(sha=git(repo, "rev-parse", "HEAD"), ref="origin/main")
 
-    inputs = write_run_inputs(repo, base, "diff --git a/app.py b/app.py\n", "# main\n")
+    inputs = write_run_inputs(repo, base, Diff(text=DIFF, changed_lines=1), "# main\n")
 
     assert inputs.diff_path == repo / ".deep-review" / "diff.patch"
-    assert inputs.diff_path.read_text(encoding="utf-8") == "diff --git a/app.py b/app.py\n"
+    assert inputs.diff_path.read_text(encoding="utf-8") == DIFF
     assert inputs.description_path.read_text(encoding="utf-8") == "# main\n"
     assert ".deep-review/" in (repo / ".git" / "info" / "exclude").read_text(encoding="utf-8")
-    assert inputs.diff_lines == 1
 
 
 def test_the_prompt_has_the_base_sha_substituted(repo: Path) -> None:
     base = Base(sha="0123456789abcdef0123456789abcdef01234567", ref="main")
 
-    inputs = write_run_inputs(repo, base, "diff\n", "# main\n")
+    inputs = write_run_inputs(repo, base, Diff(text=DIFF, changed_lines=1), "# main\n")
 
     prompt = inputs.prompt_path.read_text(encoding="utf-8")
     assert base.sha in prompt
