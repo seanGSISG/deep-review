@@ -16,11 +16,22 @@ _Avoid_: agent, the model, the bot
 The agent that writes code (Claude Code, opencode, Codex, Pi) and consumes the skill to request a Run.
 _Avoid_: agent, the user's agent
 
+**Verifier**:
+The read-only subagent that adjudicates a Report's Findings before the Coding agent changes anything,
+returning real, not-real or uncertain for each. It never edits code, and it exists so a Report's evidence
+is read in its context window instead of the Coding agent's.
+_Avoid_: reviewer (that is what produced the Findings), validator, checker, judge
+
 ### Execution
 
 **Run**:
 One execution of the pipeline against one Diff, producing exactly one Report.
 _Avoid_: review (verb), job, session
+
+**Round**:
+One Run, plus the Verifier pass and the fixes that follow it. The Skill allows two Rounds per task,
+then pushes.
+_Avoid_: iteration, attempt, retry, pass
 
 **Local mode**:
 A Run inside the developer's own checkout, reviewing what is about to be pushed.

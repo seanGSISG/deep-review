@@ -11,17 +11,27 @@ live service.
 - **Now:** gate the workflow at about 10k diff lines. Below it, deep review owns findings. Above it, skip the
   agent (post a one-line notice) and let PR-Agent's chunked `/review` cover the PR. Implement as a size check in
   the "Prepare review inputs" step plus a job output the later steps condition on.
-- **Next:** per-directory matrix split for large PRs. Partition the changed files by top-level directory (or by
-  ~3k diff lines), run one agent job per slice in parallel with the same prompt, and have the poster merge the
-  slices' `findings.json` files (dedupe by file+line) into one review. This is the Greptile v5 "one agent per
-  hypothesis" idea applied at the file level.
-- **Maybe:** a cheap diff-only first pass with `glm-5.3-flash` that lists hypotheses per file, fed to the
-  tool-using pass so it reads the suspicious hunks first instead of the demo script.
+- **Next — PARKED (2026-09-19).** Per-directory matrix split for large PRs: partition changed files by
+  top-level directory (or ~3k diff lines), run one agent job per slice in parallel, merge the slices'
+  `findings.json` (dedupe by file+line). Parked because the PR-time reviewer is now expected to become a
+  per-file AST method (Kodus-shaped, see `PROMPT.md` "Two places a review happens"), and a per-file loop
+  **is** this fix, done better: inherently partitioned, with no matrix, no merge step and no dedup logic.
+  Revisit only if the PR tier stays a whole-repo agent.
+- **Maybe — PARKED for the same reason.** A cheap diff-only first pass with `glm-5.3-flash` listing
+  hypotheses per file. Per-file hypothesis generation is what a rule pass does in the Kodus shape.
+- **Note:** the size gate matters much less in Local mode. A Local Run reviews one ticket's Diff, which
+  will rarely approach 10k lines. Build the gate for PR mode; it is not a blocker for the local loop.
 
 ## 2. Credits
 A large run costs 2 to 3 percent of the Pro plan's week (8 to 10 million mostly-cached tokens, most of it
 opencode's ~63k-token system prompt repeated per step). Fine for a few big PRs a week, which argues against
-running the deep review on everything.
+running the deep review on everything **at PR time**.
+
+This does **not** argue against the local loop, which runs two Runs per ticket. Local Runs review one
+ticket's Diff: roughly 50k fresh + 500k cached each, so two Runs across ten tickets a week is about 10M
+cached tokens — one large PR run, 2 to 3 percent of the week. The expensive case is a big PR, not a busy
+week of small ones. Run volume is now driven by ticket count rather than PR count, which makes the credit
+estimate in the footer (below) more useful, not less.
 - Gate by size (above) and skip on `paths-ignore`-only changes (already in the caller template).
 - Pi uses roughly half the tokens of opencode per run; consider it for large or low-risk PRs.
 - Add the credit estimate (fresh + cached tokens from the event stream) to the summary footer so cost is visible
