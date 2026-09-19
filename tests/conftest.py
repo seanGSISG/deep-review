@@ -51,7 +51,11 @@ R="$FAKE_REVIEWER_RECORD"
 for arg in "$@"; do printf '%s\\0' "$arg" >> "$R/argv"; done
 readlink /proc/self/fd/0 > "$R/stdin" 2>/dev/null || echo unknown > "$R/stdin"
 printf '%s' "$PWD" > "$R/cwd"
-echo '{"part":{"type":"step-finish"}}'
+# Two events in opencode's shape, so a Run has stats to report without a model call.
+cat <<'EVENTS'
+{"type":"step_finish","part":{"id":"prt_step","type":"step-finish","tokens":{"input":1200,"output":80,"reasoning":40,"cache":{"write":0,"read":9000}}}}
+{"type":"tool_use","part":{"id":"prt_call","callID":"call_1","type":"tool","tool":"bash"}}
+EVENTS
 if [ -f "$R/findings" ]; then
   mkdir -p .deep-review
   cat "$R/findings" > .deep-review/findings.json

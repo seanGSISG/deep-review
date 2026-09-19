@@ -46,6 +46,10 @@ def _footer(report: Report, findings_path: Path | None) -> str:
     if report.score is not None:
         lines.append(_label("score", f"{report.score}/5 (advisory)"))
     lines.append(_label("reviewer", _reviewer(report.stats)))
+    if spent := _tokens(report.stats):
+        lines.append(_label("tokens", spent))
+    if report.stats.tool_calls:
+        lines.append(_label("tools", _tools(report.stats.tool_calls)))
     if report.status == "ok" and report.notice:
         lines.append(_label("notice", report.notice))
     if findings_path is not None:
@@ -67,6 +71,27 @@ def _reviewer(stats: RunStats) -> str:
     if stats.variant:
         line += f" ({stats.variant})"
     return line if stats.seconds is None else f"{line} in {stats.seconds:g}s"
+
+
+def _tokens(stats: RunStats) -> str:
+    """
+    What the Run spent, fresh input against cached first: that split is where the cost lives.
+    A Run whose event stream said nothing gets no line at all rather than a row of zeroes.
+    """
+    spent = (
+        ("fresh", stats.input_tokens),
+        ("cached", stats.cache_read_tokens),
+        ("output", stats.output_tokens),
+        ("reasoning", stats.reasoning_tokens),
+    )
+    if not any(count for _, count in spent):
+        return ""
+    return ", ".join(f"{count:,} {name}" for name, count in spent)
+
+
+def _tools(calls: dict[str, int]) -> str:
+    """Which tools the Reviewer reached for, most-used first as the parser counted them."""
+    return ", ".join(f"{name} {count}" for name, count in calls.items())
 
 
 def _label(name: str, value: str) -> str:

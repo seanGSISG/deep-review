@@ -75,8 +75,12 @@ def test_a_complete_run_prints_the_findings_the_summary_and_what_it_cost(
     assert "findings  2 (P1 1, P2 1)" in out
     assert "score     2/5 (advisory)" in out
     assert "reviewer  opencode zai-coding-plan/glm-5.3 in " in out
+    assert "tokens    1,200 fresh, 9,000 cached, 80 output, 40 reasoning" in out
+    assert "tools     bash 1" in out
     assert "report    .deep-review/findings.json" in out
     assert report_on_disk(branch)["status"] == "ok"
+    assert report_on_disk(branch)["stats"]["cache_read_tokens"] == 9000
+    assert report_on_disk(branch)["stats"]["tool_calls"] == {"bash": 1}
 
 
 def test_the_reviewer_reads_the_runs_inputs_in_the_checkout(
@@ -203,6 +207,7 @@ def test_a_diff_over_the_size_gate_skips_the_reviewer(
     out = capsys.readouterr().out
     assert "skipped: the Diff changes 41 lines, over the --max-diff-lines limit of 20" in out
     assert "the Reviewer did not run" in out
+    assert "tokens" not in out  # a Reviewer that never ran spent nothing to say so
     assert not reviewer.ran
     assert report_on_disk(branch)["status"] == "skipped"
 
