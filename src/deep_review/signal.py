@@ -28,7 +28,9 @@ from deep_review.process import run_streamed
 # Where a Run's Signal files land, inside the Run directory.
 SIGNAL_DIR_NAME = "signal"
 
-# Each tool gets its own budget: one slow test suite must not eat the next tool's chance to run.
+# What each tool gets by default, when a caller does not say. Collection is serial and runs
+# before the Reviewer, so a per-tool cap is really a guard on how long a Run spends getting
+# ready: fourteen tools at five minutes is over an hour on top of the Reviewer's own cap.
 STEP_TIMEOUT_SECONDS = 300.0
 
 # How much of a tool's output survives. The tail is what is kept, because that is where a test
@@ -63,12 +65,13 @@ class Step:
     argv: tuple[str, ...]
 
 
-def collect(repo: Path, run_dir: Path) -> list[Path]:
+def collect(repo: Path, run_dir: Path, timeout_seconds: float = STEP_TIMEOUT_SECONDS) -> list[Path]:
     """
-    Gather every tool's Signal into `run_dir/signal/` and say which files were written. A tool
-    that is not installed writes nothing at all, and neither a broken tool nor an unwritable
-    directory raises: the Reviewer reads the checkout either way, and a Run that died because a
-    linter could not run has failed at the only thing it was for.
+    Gather every tool's Signal into `run_dir/signal/` and say which files were written, giving
+    each tool `timeout_seconds` of its own. A tool that is not installed writes nothing at all,
+    and neither a broken tool nor an unwritable directory raises: the Reviewer reads the checkout
+    either way, and a Run that died because a linter could not run has failed at the only thing
+    it was for.
     """
     signal_dir = run_dir / SIGNAL_DIR_NAME
     written: list[Path] = []
@@ -82,7 +85,7 @@ def collect(repo: Path, run_dir: Path) -> list[Path]:
         except OSError:
             continue
         for step in steps:
-            path = _run_step(repo, signal_dir, step)
+            path = _run_step(repo, signal_dir, step, timeout_seconds)
             if path is not None:
                 written.append(path)
     return written
@@ -268,7 +271,7 @@ def _backing_off(cache: Path) -> bool:
     return age < CLONE_RETRY_AFTER_SECONDS
 
 
-def _run_step(repo: Path, signal_dir: Path, step: Step) -> Path | None:
+def _run_step(repo: Path, signal_dir: Path, step: Step, cap: float) -> Path | None:
     """
     Run one tool and write its Signal file: the command, its combined output capped at the last
     OUTPUT_CAP_BYTES bytes, and how it ended. The cap is applied as the output arrives rather than
@@ -277,7 +280,6 @@ def _run_step(repo: Path, signal_dir: Path, step: Step) -> Path | None:
     if shutil.which(step.argv[0]) is None:
         return None
     path = signal_dir / f"{step.name}.txt"
-    cap = STEP_TIMEOUT_SECONDS
     try:
         output, dropped, code = run_streamed(
             step.argv, cwd=repo, timeout_seconds=cap, cap=OUTPUT_CAP_BYTES

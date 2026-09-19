@@ -19,6 +19,7 @@ class RunOptions:
     model: str
     variant: str | None
     timeout_seconds: float
+    signal_timeout_seconds: float
     max_diff_lines: int
 
 
@@ -62,7 +63,7 @@ def execute(
     findings_path.unlink(missing_ok=True)
     # Hypotheses for the Reviewer to open on. Nothing collected here can fail the Run, so there is
     # nothing to check: a tool that is missing or broken just leaves the Reviewer a colder repo.
-    collect(repo, inputs.run_dir)
+    collect(repo, inputs.run_dir, timeout_seconds=options.signal_timeout_seconds)
     outcome = invoke(
         options.reviewer,
         repo=repo,

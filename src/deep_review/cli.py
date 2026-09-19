@@ -11,12 +11,17 @@ from deep_review.render import render
 from deep_review.report import SEVERITIES, Report, Severity, serialise
 from deep_review.reviewer import DEFAULT_REVIEWER, REVIEWERS, preflight, resolve_model
 from deep_review.run import RunOptions, execute
+from deep_review.signal import STEP_TIMEOUT_SECONDS
 
 # Above this many changed lines the Reviewer collapses, so the Size gate skips it (MVP2 item 1).
 MAX_DIFF_LINES = 10_000
 
 # Minutes a Run gets before the Reviewer is killed.
 TIMEOUT_MINUTES = 20.0
+
+# Minutes each Signal tool gets before it is killed, taken from the collector's own default so
+# the two cannot drift. Raise it for a repo whose test suite is slower than the Reviewer is.
+SIGNAL_TIMEOUT_MINUTES = STEP_TIMEOUT_SECONDS / 60
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -82,6 +87,14 @@ def _parser() -> argparse.ArgumentParser:
         metavar="MINUTES",
         help="kill the Reviewer after this long (default: %(default)s)",
     )
+    review.add_argument(
+        "--signal-timeout",
+        type=float,
+        default=SIGNAL_TIMEOUT_MINUTES,
+        metavar="MINUTES",
+        help="kill each Signal tool after this long; raise it for a repo whose own test suite "
+        "takes longer than this (default: %(default)s)",
+    )
     return parser
 
 
@@ -99,6 +112,7 @@ def _review(args: argparse.Namespace) -> int:
         model=resolve_model(reviewer, args.model),
         variant=args.variant or reviewer.default_variant,
         timeout_seconds=args.timeout * 60,
+        signal_timeout_seconds=args.signal_timeout * 60,
         max_diff_lines=args.max_diff_lines,
     )
     report, written = execute(

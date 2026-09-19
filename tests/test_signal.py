@@ -81,15 +81,12 @@ def test_a_failing_tool_is_signal_rather_than_a_failed_run(repo: Path, tools: Pa
     assert vet.endswith("[exit 2]\n")
 
 
-def test_a_tool_that_outlives_its_cap_is_killed_and_said_so(
-    repo: Path, tools: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(signal, "STEP_TIMEOUT_SECONDS", 0.5)
+def test_a_tool_that_outlives_its_cap_is_killed_and_said_so(repo: Path, tools: Path) -> None:
     write(repo, "go.mod", "module example.com/app\n")
     stub(tools, "go", "echo starting\nsleep 30")
 
     started = time.monotonic()
-    collect(repo, repo / ".deep-review")
+    collect(repo, repo / ".deep-review", timeout_seconds=0.5)
 
     assert time.monotonic() - started < 20, "the cap did not stop the tool"
     vet = (signal_dir(repo) / "go-vet.txt").read_text(encoding="utf-8")
@@ -235,14 +232,13 @@ def test_a_failed_clone_is_not_retried_by_every_run_that_follows(
 
 
 def test_a_tool_that_leaves_a_child_holding_the_pipe_does_not_hold_up_the_run(
-    repo: Path, tools: Path, monkeypatch: pytest.MonkeyPatch
+    repo: Path, tools: Path
 ) -> None:
-    monkeypatch.setattr(signal, "STEP_TIMEOUT_SECONDS", 30.0)
     write(repo, "go.mod", "module example.com/app\n")
     stub(tools, "go", "echo done\nsleep 20 &\nexit 0")
 
     started = time.monotonic()
-    collect(repo, repo / ".deep-review")
+    collect(repo, repo / ".deep-review", timeout_seconds=30.0)
 
     assert time.monotonic() - started < 10, "the Run waited on a pipe nobody was going to close"
     vet = (signal_dir(repo) / "go-vet.txt").read_text(encoding="utf-8")

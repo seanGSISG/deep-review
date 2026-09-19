@@ -296,3 +296,19 @@ def test_review_outside_a_git_checkout_exits_2(
     assert main(["review"]) == 2
 
     assert "git" in capsys.readouterr().err
+
+
+def test_the_signal_timeout_reaches_collection(
+    branch: Path, reviewer: FakeReviewer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    caps: list[float] = []
+
+    def record(repo: Path, run_dir: Path, timeout_seconds: float) -> list[Path]:
+        caps.append(timeout_seconds)
+        return []
+
+    monkeypatch.setattr("deep_review.run.collect", record)
+    reviewer.will_write(FINDINGS)
+
+    assert main(["review", "--signal-timeout", "2"]) == 0
+    assert caps == [120.0], "the flag is in minutes; each tool is capped in seconds"
