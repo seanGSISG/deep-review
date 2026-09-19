@@ -61,8 +61,15 @@ def _parser() -> argparse.ArgumentParser:
     review.add_argument(
         "--model", metavar="ID", help="model for the Reviewer; without a slash, its provider's"
     )
+    # Each Reviewer starts at its own reasoning level, so the help text is built from the table
+    # rather than restating it here and letting the two drift.
+    variants = ", ".join(
+        f"{reviewer.name} {reviewer.default_variant or 'unset'}" for reviewer in REVIEWERS.values()
+    )
     review.add_argument(
-        "--variant", metavar="LEVEL", help="reasoning level, passed to the Reviewer verbatim"
+        "--variant",
+        metavar="LEVEL",
+        help=f"reasoning level, passed verbatim to the Reviewer's own flag (default: {variants})",
     )
     review.add_argument(
         "--json", action="store_true", help="print the whole Report instead of the table"

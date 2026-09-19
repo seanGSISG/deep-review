@@ -11,7 +11,9 @@ from deep_review import UsageError
 from deep_review.reviewer import (
     EVENTS_NAME,
     OPENCODE,
+    PI,
     STDERR_NAME,
+    Reviewer,
     invoke,
     preflight,
     resolve_model,
@@ -20,16 +22,21 @@ from deep_review.reviewer import (
 PROMPT = "Review the diff.\n\nWrite .deep-review/findings.json.\n"
 
 
-def run(repo: Path, timeout_seconds: float = 30.0, variant: str | None = None):
+def run(
+    repo: Path,
+    selected: Reviewer = OPENCODE,
+    timeout_seconds: float = 30.0,
+    variant: str | None = None,
+):
     """Invoke the Reviewer against a checkout whose Run directory already exists."""
     run_dir = repo / ".deep-review"
     run_dir.mkdir(exist_ok=True)
     return invoke(
-        OPENCODE,
+        selected,
         repo=repo,
         run_dir=run_dir,
         prompt=PROMPT,
-        model="zai-coding-plan/glm-5.3",
+        model=selected.default_model,
         variant=variant,
         timeout_seconds=timeout_seconds,
     )
@@ -54,6 +61,27 @@ def test_the_prompt_is_one_argument_and_stdin_is_dev_null(
     ]
     assert reviewer.stdin == "/dev/null"
     assert reviewer.cwd == repo
+
+
+def test_pi_sees_only_the_review_prompt_too(repo: Path, pi_reviewer: FakeReviewer) -> None:
+    outcome = run(repo, PI, variant="medium")
+
+    assert outcome.exit_code == 0
+    assert pi_reviewer.argv[-1] == PROMPT
+    assert pi_reviewer.argv[:-1] == [
+        "-p",
+        "--mode",
+        "json",
+        "--no-session",
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--model",
+        "zai/glm-5.3",
+        "--thinking",
+        "medium",
+    ]
+    assert pi_reviewer.stdin == "/dev/null"
 
 
 def test_a_variant_reaches_the_reviewers_own_flag(repo: Path, reviewer: FakeReviewer) -> None:
@@ -92,13 +120,15 @@ def test_the_time_cap_kills_the_reviewer_and_its_children(
     assert _is_gone(reviewer.child), "the Reviewer's own child outlived the time cap"
 
 
-def test_a_missing_reviewer_binary_is_a_usage_error_with_an_install_hint(
+def test_a_missing_reviewer_binary_is_a_usage_error_with_its_own_install_hint(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("PATH", str(tmp_path))
 
     with pytest.raises(UsageError, match="npm install -g opencode-ai"):
         preflight(OPENCODE)
+    with pytest.raises(UsageError, match="npm install -g @earendil-works/pi-coding-agent"):
+        preflight(PI)
 
 
 def test_a_missing_key_is_a_usage_error(
@@ -114,10 +144,23 @@ def test_a_missing_key_is_a_usage_error(
     preflight(OPENCODE)
 
 
-def test_a_bare_model_gains_the_providers_prefix() -> None:
+def test_a_missing_key_is_a_usage_error_for_pi_too(
+    monkeypatch: pytest.MonkeyPatch, pi_reviewer: FakeReviewer
+) -> None:
+    monkeypatch.delenv("ZAI_API_KEY")
+    monkeypatch.delenv("Z_AI_API_KEY", raising=False)
+
+    with pytest.raises(UsageError, match="set ZAI_API_KEY or Z_AI_API_KEY"):
+        preflight(PI)
+
+
+def test_a_bare_model_gains_the_selected_reviewers_provider_prefix() -> None:
     assert resolve_model(OPENCODE, None) == "zai-coding-plan/glm-5.3"
     assert resolve_model(OPENCODE, "glm-5.3-flash") == "zai-coding-plan/glm-5.3-flash"
     assert resolve_model(OPENCODE, "openrouter/z-ai/glm-5.3") == "openrouter/z-ai/glm-5.3"
+    assert resolve_model(PI, None) == "zai/glm-5.3"
+    assert resolve_model(PI, "glm-5.3-flash") == "zai/glm-5.3-flash"
+    assert resolve_model(PI, "openrouter/z-ai/glm-5.3") == "openrouter/z-ai/glm-5.3"
 
 
 def _is_gone(pid: int) -> bool:

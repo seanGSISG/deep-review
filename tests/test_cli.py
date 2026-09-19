@@ -270,6 +270,53 @@ def test_the_model_and_variant_reach_the_reviewer(branch: Path, reviewer: FakeRe
     assert reviewer.argv[-4:-1] == ["zai-coding-plan/glm-5.3-flash", "--variant", "high"]
 
 
+def test_pi_runs_on_its_own_model_and_variant_defaults(
+    branch: Path, pi_reviewer: FakeReviewer
+) -> None:
+    pi_reviewer.will_write(FINDINGS)
+
+    assert main(["review", "--agent", "pi"]) == 0
+
+    assert pi_reviewer.argv[-5:-1] == ["--model", "zai/glm-5.3", "--thinking", "medium"]
+    stats = report_on_disk(branch)["stats"]
+    assert (stats["agent"], stats["model"], stats["variant"]) == ("pi", "zai/glm-5.3", "medium")
+
+
+def test_pi_reports_what_its_own_event_stream_says_it_spent(
+    branch: Path, pi_reviewer: FakeReviewer, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pi_reviewer.will_write(FINDINGS)
+
+    main(["review", "--agent", "pi"])
+
+    # The stand-in prints pi's 120 of output with its 40 of reasoning still inside it.
+    stats = report_on_disk(branch)["stats"]
+    assert (stats["input_tokens"], stats["cache_read_tokens"]) == (1200, 9000)
+    assert (stats["output_tokens"], stats["reasoning_tokens"]) == (80, 40)
+    assert stats["tool_calls"] == {"bash": 1}
+    assert "1,200 fresh, 9,000 cached, 80 output, 40 reasoning" in capsys.readouterr().out
+
+
+def test_a_bare_model_gains_pis_prefix_under_pi(branch: Path, pi_reviewer: FakeReviewer) -> None:
+    pi_reviewer.will_write(FINDINGS)
+
+    main(["review", "--agent", "pi", "--model", "glm-5.3-flash", "--variant", "high"])
+
+    assert pi_reviewer.argv[-5:-1] == ["--model", "zai/glm-5.3-flash", "--thinking", "high"]
+
+
+def test_a_missing_pi_binary_exits_2_with_pis_own_install_hint(
+    branch: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("PATH", str(only_git(branch)))
+
+    assert main(["review", "--agent", "pi"]) == 2
+
+    assert (
+        "install it with `npm install -g @earendil-works/pi-coding-agent" in capsys.readouterr().err
+    )
+
+
 def test_a_missing_reviewer_binary_exits_2_before_the_run(
     branch: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -3,11 +3,14 @@
 import os
 import shutil
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 from deep_review import UsageError
+from deep_review.events import opencode_stats, pi_stats
 from deep_review.process import run_capped
+from deep_review.report import RunStats
 
 # What the Reviewer leaves in the Run directory.
 FINDINGS_NAME = "findings.json"
@@ -39,6 +42,8 @@ class Reviewer:
     flags: tuple[str, ...]
     model_flag: str
     variant_flag: str
+    # How this CLI's own event stream is read back into the Run's stats.
+    read_stats: Callable[[Path, RunStats], RunStats]
 
 
 OPENCODE = Reviewer(
@@ -52,10 +57,35 @@ OPENCODE = Reviewer(
     flags=("run", "--format", "json", "--pure", "--dangerously-skip-permissions"),
     model_flag="-m",
     variant_flag="--variant",
+    read_stats=opencode_stats,
 )
 
-# opencode is the default: best recall in the bake-off (docs/bakeoff-2026-09.md).
-REVIEWERS: dict[str, Reviewer] = {OPENCODE.name: OPENCODE}
+PI = Reviewer(
+    name="pi",
+    binary="pi",
+    provider="zai",
+    default_model="zai/glm-5.3",
+    # pi thinks at its model's own default unless told otherwise; medium is what the bake-off ran.
+    default_variant="medium",
+    key_env="ZAI_API_KEY",
+    install_hint="npm install -g @earendil-works/pi-coding-agent@0.85.1",
+    flags=(
+        "-p",
+        "--mode",
+        "json",
+        "--no-session",
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+    ),
+    model_flag="--model",
+    variant_flag="--thinking",
+    read_stats=pi_stats,
+)
+
+# opencode is the default: best recall in the bake-off (docs/bakeoff-2026-09.md). pi is selectable
+# for roughly half the tokens, and it found a race on PR #1 that opencode never looked for.
+REVIEWERS: dict[str, Reviewer] = {reviewer.name: reviewer for reviewer in (OPENCODE, PI)}
 DEFAULT_REVIEWER = OPENCODE.name
 
 

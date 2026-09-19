@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-from deep_review.events import read_stats
 from deep_review.git import RUN_DIR_NAME, Base, Diff
 from deep_review.local import write_run_inputs
 from deep_review.report import Report, RunStats, read_findings, serialise
@@ -74,7 +73,7 @@ def execute(
         timeout_seconds=options.timeout_seconds,
     )
     stats = stats.model_copy(update={"seconds": round(outcome.seconds, 1)})
-    stats = read_stats(inputs.run_dir / EVENTS_NAME, stats)
+    stats = options.reviewer.read_stats(inputs.run_dir / EVENTS_NAME, stats)
     report = read_findings(findings_path, stats)
     # A Reviewer that crashed or ran out of time leaves a failed Run even when a findings file
     # survived it, because nothing proves that file is the whole Report. Whatever Findings it did

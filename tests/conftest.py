@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from deep_review.reviewer import OPENCODE, PI, Reviewer
+
 
 def git(repo: Path, *args: str) -> str:
     """Run a git command in `repo` and return its stdout, failing the test on a non-zero exit."""
@@ -62,11 +64,23 @@ R="$FAKE_REVIEWER_RECORD"
 for arg in "$@"; do printf '%s\\0' "$arg" >> "$R/argv"; done
 readlink /proc/self/fd/0 > "$R/stdin" 2>/dev/null || echo unknown > "$R/stdin"
 printf '%s' "$PWD" > "$R/cwd"
-# Two events in opencode's shape, so a Run has stats to report without a model call.
+# Two events in the shape the CLI it is standing in for prints, so a Run has stats to report
+# without a model call. Both spellings report the same spend: 1200 fresh, 9000 cached, 80 written
+# and 40 reasoned, which is pi's 120 of output with its reasoning still inside it.
+case "$(basename "$0")" in
+pi)
+cat <<'EVENTS'
+{"type":"message_end","message":{"role":"assistant","usage":{"input":1200,"output":120,"reasoning":40,"cacheRead":9000,"cacheWrite":0}}}
+{"type":"tool_execution_start","toolCallId":"toolu_1","toolName":"bash","args":{}}
+EVENTS
+;;
+*)
 cat <<'EVENTS'
 {"type":"step_finish","part":{"id":"prt_step","type":"step-finish","tokens":{"input":1200,"output":80,"reasoning":40,"cache":{"write":0,"read":9000}}}}
 {"type":"tool_use","part":{"id":"prt_call","callID":"call_1","type":"tool","tool":"bash"}}
 EVENTS
+;;
+esac
 if [ -f "$R/findings" ]; then
   mkdir -p .deep-review
   cat "$R/findings" > .deep-review/findings.json
@@ -131,10 +145,9 @@ class FakeReviewer:
         return (self.record / "argv").exists()
 
 
-@pytest.fixture
-def reviewer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeReviewer:
-    """An `opencode` on PATH that is not opencode, plus the key its preflight looks for."""
-    binary = tmp_path / "bin" / "opencode"
+def install(reviewer: Reviewer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeReviewer:
+    """Put the stand-in on PATH under this Reviewer's name, with the key its preflight looks for."""
+    binary = tmp_path / "bin" / reviewer.binary
     binary.parent.mkdir(parents=True, exist_ok=True)
     binary.write_text(FAKE_REVIEWER, encoding="utf-8")
     binary.chmod(0o755)
@@ -142,5 +155,17 @@ def reviewer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeReviewer:
     record.mkdir()
     monkeypatch.setenv("PATH", f"{binary.parent}:{os.environ['PATH']}")
     monkeypatch.setenv("FAKE_REVIEWER_RECORD", str(record))
-    monkeypatch.setenv("ZHIPU_API_KEY", "test-key")
+    monkeypatch.setenv(reviewer.key_env, "test-key")
     return FakeReviewer(record=record)
+
+
+@pytest.fixture
+def reviewer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeReviewer:
+    """An `opencode` on PATH that is not opencode, printing opencode's event shape."""
+    return install(OPENCODE, tmp_path, monkeypatch)
+
+
+@pytest.fixture
+def pi_reviewer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeReviewer:
+    """The same stand-in installed as `pi`, printing pi's event shape instead."""
+    return install(PI, tmp_path, monkeypatch)
