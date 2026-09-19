@@ -1,6 +1,9 @@
-"""Throwaway git checkouts to point the Local mode helpers at."""
+"""Throwaway git checkouts, and a stand-in for the Reviewer, to point the CLI at."""
 
+import json
+import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -39,3 +42,90 @@ def repo(tmp_path: Path) -> Path:
     write(checkout, "app.py", "def ship(order):\n    return order\n")
     commit(checkout, "init: app")
     return checkout
+
+
+FAKE_REVIEWER = """#!/bin/sh
+# A stand-in for the Reviewer: it records how it was invoked, then does what the test asked for.
+R="$FAKE_REVIEWER_RECORD"
+: > "$R/argv"
+for arg in "$@"; do printf '%s\\0' "$arg" >> "$R/argv"; done
+readlink /proc/self/fd/0 > "$R/stdin" 2>/dev/null || echo unknown > "$R/stdin"
+printf '%s' "$PWD" > "$R/cwd"
+echo '{"part":{"type":"step-finish"}}'
+if [ -f "$R/findings" ]; then
+  mkdir -p .deep-review
+  cat "$R/findings" > .deep-review/findings.json
+fi
+if [ -f "$R/hang" ]; then
+  sh -c 'sleep 60' &
+  echo $! > "$R/child"
+  sleep 60
+fi
+if [ -f "$R/exit" ]; then exit "$(cat "$R/exit")"; fi
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class FakeReviewer:
+    """
+    The Reviewer, stubbed out: an executable on PATH that records its argv, its stdin and its
+    working directory, and writes whatever the test asked it to write. It stands in for the real
+    thing so the invocation details can be asserted without a model call.
+    """
+
+    record: Path
+
+    def will_write(self, payload: object) -> None:
+        """Have the Reviewer write this findings file."""
+        (self.record / "findings").write_text(json.dumps(payload), encoding="utf-8")
+
+    def will_exit(self, code: int) -> None:
+        """Have the Reviewer exit with this code."""
+        (self.record / "exit").write_text(str(code), encoding="utf-8")
+
+    def will_hang(self) -> None:
+        """
+        Have the Reviewer sleep past any test's timeout, with a child of its own running. It hangs
+        after writing, so `will_write` as well stands in for one killed once its Report was out.
+        """
+        (self.record / "hang").touch()
+
+    @property
+    def argv(self) -> list[str]:
+        """The arguments it was given, so a prompt split across two of them would show up."""
+        return (self.record / "argv").read_bytes().decode().split("\0")[:-1]
+
+    @property
+    def stdin(self) -> str:
+        """Where its standard input came from: /dev/null, or it blocks before the first call."""
+        return (self.record / "stdin").read_text(encoding="utf-8").strip()
+
+    @property
+    def cwd(self) -> Path:
+        """The directory it ran in, which is the checkout under review."""
+        return Path((self.record / "cwd").read_text(encoding="utf-8"))
+
+    @property
+    def child(self) -> int:
+        """The pid of the process it left running, for the time cap to kill along with it."""
+        return int((self.record / "child").read_text(encoding="utf-8"))
+
+    @property
+    def ran(self) -> bool:
+        """True once it has been invoked at all."""
+        return (self.record / "argv").exists()
+
+
+@pytest.fixture
+def reviewer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeReviewer:
+    """An `opencode` on PATH that is not opencode, plus the key its preflight looks for."""
+    binary = tmp_path / "bin" / "opencode"
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    binary.write_text(FAKE_REVIEWER, encoding="utf-8")
+    binary.chmod(0o755)
+    record = tmp_path / "record"
+    record.mkdir()
+    monkeypatch.setenv("PATH", f"{binary.parent}:{os.environ['PATH']}")
+    monkeypatch.setenv("FAKE_REVIEWER_RECORD", str(record))
+    monkeypatch.setenv("ZHIPU_API_KEY", "test-key")
+    return FakeReviewer(record=record)
