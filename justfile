@@ -7,6 +7,11 @@ default:
 test:
     uv run pytest
 
+# Run only the live test: one real Run against a planted bug. It spends Z.AI credits, which is
+# why `just test` leaves it out.
+test-live:
+    uv run pytest -m integration
+
 # Lint and type-check.
 lint:
     uv run ruff check .

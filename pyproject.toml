@@ -42,4 +42,6 @@ include = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# The live Run costs Z.AI credits, so `just test` leaves it out and `just test-live` asks for it.
+addopts = "-q -m 'not integration'"
+markers = ["integration: runs the real Reviewer against a planted bug and spends Z.AI credits"]
