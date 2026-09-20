@@ -51,11 +51,27 @@ def commit(repo: Path, message: str) -> str:
 def isolated_rules(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """
     Keep the ast-grep rule pack out of the suite. Every Run collects Signal, so without this a
-    test on a machine with ast-grep would clone the pack from GitHub and leave it in the
-    developer's own cache. The tests that are about the rules point these somewhere real.
+    test on a machine with ast-grep would clone the pack from GitHub. The tests that are about
+    the rules point this somewhere real.
     """
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     monkeypatch.setenv("AST_GREP_RULES", str(tmp_path / "no-rules"))
+
+
+@pytest.fixture(autouse=True)
+def isolated_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
+    """
+    Keep what a Run caches out of the developer's own cache, which is where the Reviewers' settings
+    directories live.
+
+    The live Runs keep the machine's caches, because they are the real thing and the real thing
+    includes opencode's model catalog: on a cold cache it races its own models.dev fetch and
+    starts the session with no catalog, so two Runs in three die on a model it cannot find.
+    """
+    if "integration" in request.keywords:
+        return
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
 
 
 @pytest.fixture
@@ -79,6 +95,7 @@ R="$FAKE_REVIEWER_RECORD"
 for arg in "$@"; do printf '%s\\0' "$arg" >> "$R/argv"; done
 readlink /proc/self/fd/0 > "$R/stdin" 2>/dev/null || echo unknown > "$R/stdin"
 printf '%s' "$PWD" > "$R/cwd"
+env -0 > "$R/env"
 # Two events in the shape the CLI it is standing in for prints, so a Run has stats to report
 # without a model call. Both spellings report the same spend: 1200 fresh, 9000 cached, 80 written
 # and 40 reasoned, which is pi's 120 of output with its reasoning still inside it.
@@ -112,9 +129,9 @@ if [ -f "$R/exit" ]; then exit "$(cat "$R/exit")"; fi
 @dataclass(frozen=True, slots=True)
 class FakeReviewer:
     """
-    The Reviewer, stubbed out: an executable on PATH that records its argv, its stdin and its
-    working directory, and writes whatever the test asked it to write. It stands in for the real
-    thing so the invocation details can be asserted without a model call.
+    The Reviewer, stubbed out: an executable on PATH that records its argv, its stdin, its
+    working directory and its environment, and writes whatever the test asked it to write. It
+    stands in for the real thing so the invocation details can be asserted without a model call.
     """
 
     record: Path
@@ -148,6 +165,19 @@ class FakeReviewer:
     def cwd(self) -> Path:
         """The directory it ran in, which is the checkout under review."""
         return Path((self.record / "cwd").read_text(encoding="utf-8"))
+
+    @property
+    def env(self) -> dict[str, str]:
+        """
+        The environment it was handed, so anything the developer's shell exported for this CLI
+        would show up here. NUL-separated, because a variable is allowed to hold newlines.
+        """
+        entries = (self.record / "env").read_bytes().decode().split("\0")[:-1]
+        environment: dict[str, str] = {}
+        for entry in entries:
+            name, _, value = entry.partition("=")
+            environment[name] = value
+        return environment
 
     @property
     def child(self) -> int:

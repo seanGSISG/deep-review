@@ -10,6 +10,9 @@ mergeability score.
 
 **Reviewer**:
 The agent CLI (opencode or pi) plus the model it drives, executing the review prompt against a checkout.
+It runs with the CLI's own context loading switched off, so what it was told is the review prompt and
+not the instruction files the machine or the branch had lying around — bar one vector opencode gives
+no flag for, which #12 closes at our layer (ADR-0002).
 _Avoid_: agent, the model, the bot
 
 **Coding agent**:

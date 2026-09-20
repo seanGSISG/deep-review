@@ -22,6 +22,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
+from deep_review import cache_dir
 from deep_review.git import RUN_DIR_NAME
 from deep_review.process import run_streamed
 
@@ -203,10 +204,8 @@ def ast_grep_rules() -> Path | None:
 
 
 def rules_cache_dir() -> Path:
-    """The cached rule pack's home, under XDG_CACHE_HOME when it is set and ~/.cache when not."""
-    configured = os.environ.get("XDG_CACHE_HOME")
-    root = Path(configured) if configured else Path.home() / ".cache"
-    return root / "deep-review" / "ast-grep-essentials"
+    """The cached rule pack's home."""
+    return cache_dir("ast-grep-essentials")
 
 
 def _clone_rules(cache: Path) -> bool:

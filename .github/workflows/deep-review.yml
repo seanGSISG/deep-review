@@ -93,6 +93,13 @@ jobs:
         env:
           ZHIPU_API_KEY: ${{ secrets.ZAI_API_KEY }}
           ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+          # The Reviewer must see only the review prompt, and here every instruction file within
+          # reach comes from the branch under review: AGENTS.md, CLAUDE.md, CONTEXT.md and the
+          # skills under .claude/skills. The first also stops a .opencode/ directory in that
+          # branch starting an npm install inside the checkout. deep_review.reviewer is the
+          # source of truth for both; this copy goes away with the step itself, in #9.
+          OPENCODE_DISABLE_PROJECT_CONFIG: "1"
+          OPENCODE_DISABLE_CLAUDE_CODE: "1"
           AGENT: ${{ inputs.agent }}
           MODEL_IN: ${{ inputs.model }}
           VARIANT: ${{ inputs.variant }}
@@ -105,6 +112,7 @@ jobs:
             MODEL=${MODEL_IN:-zai/glm-5.3}
             timeout $(( (BUDGET - 5) * 60 )) \
               pi -p --mode json --no-session --no-extensions --no-skills --no-prompt-templates \
+                --no-context-files --no-approve \
                 --model "$MODEL" --thinking "${VARIANT:-medium}" \
                 "$(cat .deep-review/prompt.md)" < /dev/null > .deep-review/agent-events.jsonl 2> .deep-review/agent.err || echo "agent exit $?"
           else

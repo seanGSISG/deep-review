@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from deep_review import UsageError
+from deep_review import UsageError, cache_dir
 from deep_review.events import opencode_stats, pi_stats
 from deep_review.process import run_capped
 from deep_review.report import RunStats
@@ -24,10 +24,12 @@ KEY_FALLBACK = "Z_AI_API_KEY"
 @dataclass(frozen=True, slots=True)
 class Reviewer:
     """
-    One agent CLI and the flags that turn it into a Reviewer: JSON events on stdout, no session
-    state, and none of the user's own skills, extensions or prompt templates loaded. That last part
-    is not tidiness — a Reviewer that loaded the user's skills could invoke deep-review recursively,
-    and it must see only the review prompt.
+    One agent CLI, and the flags and environment that turn it into a Reviewer: JSON events on
+    stdout, no session state, and none of the user's own instruction files, skills, extensions,
+    plugins, MCP servers or prompt templates loaded. That last part is not tidiness — a Reviewer
+    that loaded the user's skills could invoke deep-review recursively, one that loaded the
+    checkout's AGENTS.md would take instructions from the change it is reviewing, and it must see
+    only the review prompt.
     """
 
     name: str
@@ -42,6 +44,17 @@ class Reviewer:
     flags: tuple[str, ...]
     model_flag: str
     variant_flag: str
+    # This CLI's own environment namespace. Every variable in it is dropped from a Run's
+    # environment, because these CLIs take whole configurations that way: OPENCODE_CONFIG_CONTENT
+    # alone would hand the Reviewer one from the developer's shell.
+    env_prefix: str
+    # The variable pointing this CLI at the directory it reads its own settings from. A Run gives
+    # it an empty one of ours, which is what strips the rest: global instruction files, installed
+    # packages, plugins, MCP servers and, for pi, project trust.
+    home_env: str
+    # What a Run sets to turn off the context this CLI still loads on its own. Assignments, not
+    # names: everything else here called `env` holds the name of a variable.
+    disables: tuple[tuple[str, str], ...]
     # How this CLI's own event stream is read back into the Run's stats.
     read_stats: Callable[[Path, RunStats], RunStats]
 
@@ -57,6 +70,23 @@ OPENCODE = Reviewer(
     flags=("run", "--format", "json", "--pure", "--dangerously-skip-permissions"),
     model_flag="-m",
     variant_flag="--variant",
+    env_prefix="OPENCODE_",
+    # Global.Path.config, which is $XDG_CONFIG_HOME/opencode: its AGENTS.md is pushed onto the
+    # system prompt with no flag of its own, and its opencode.json carries plugins and MCP
+    # servers. OPENCODE_CONFIG_DIR is not the lever it looks like — it appends a second AGENTS.md
+    # path rather than replacing the default, so setting it adds a source instead of removing one.
+    home_env="XDG_CONFIG_HOME",
+    disables=(
+        # The walk from cwd to the worktree root: AGENTS.md, CLAUDE.md, CONTEXT.md and the
+        # project opencode.json, all of them from the checkout under review. It also gates the
+        # project .opencode directories, and a .opencode in a checkout starts an npm install
+        # that writes into the tree the Run is meant to leave alone.
+        ("OPENCODE_DISABLE_PROJECT_CONFIG", "1"),
+        # Both halves of the Claude Code bridge in one flag: CLAUDE.md, from the checkout and
+        # from ~/.claude, and the skills under ~/.claude/skills and .claude/skills — one of
+        # which is the Skill that asks for a Run in the first place.
+        ("OPENCODE_DISABLE_CLAUDE_CODE", "1"),
+    ),
     read_stats=opencode_stats,
 )
 
@@ -77,9 +107,20 @@ PI = Reviewer(
         "--no-extensions",
         "--no-skills",
         "--no-prompt-templates",
+        # AGENTS.md and CLAUDE.md discovery, which pi does whatever the project is trusted for.
+        "--no-context-files",
+        # Project-local files, which with Sean's defaultProjectTrust of "always" are otherwise
+        # trusted outright in the non-interactive mode a Run uses.
+        "--no-approve",
     ),
     model_flag="--model",
     variant_flag="--thinking",
+    env_prefix="PI_",
+    # settings.json and everything it names — packages, extensions, skills, prompts — plus the
+    # tools directory and trust.json. auth.json lives here too, so a Run's key has to come from
+    # the environment instead; it does, which is what makes an empty directory workable.
+    home_env="PI_CODING_AGENT_DIR",
+    disables=(),
     read_stats=pi_stats,
 )
 
@@ -133,6 +174,41 @@ def resolve_model(reviewer: Reviewer, model: str | None) -> str:
     return model if "/" in model else f"{reviewer.provider}/{model}"
 
 
+def reviewer_home(reviewer: Reviewer) -> Path:
+    """
+    The settings directory a Run hands this Reviewer in place of the user's own: empty, ours, and
+    the same one on every Run. Nothing writes context into it, so what the Reviewer loads from it
+    is nothing, here and on anyone else's machine. It lives in the cache because that is what it
+    is — opencode fills it with the plugin package it installs for itself, pi with an empty
+    auth.json, and a Run that finds it missing costs one npm install to build it again.
+
+    One directory per Reviewer, because both CLIs would otherwise write their own state into it.
+    Neither needs it to exist first: both create it, which is why nothing here does.
+    """
+    return cache_dir("reviewers", reviewer.name)
+
+
+def hermetic_env(reviewer: Reviewer) -> dict[str, str]:
+    """
+    The environment a Run gives the Reviewer, built from the caller's rather than replacing it:
+    the Reviewer needs a PATH and a shell for the bash tool that proves its Findings. Three things
+    happen on the way in. Every variable in the CLI's own namespace is dropped, so nothing the
+    developer exported can change a Run. The CLI is pointed at an empty settings directory of
+    ours. And the flags that turn off the context it still finds by itself go in, after the drop,
+    so a variable in the shell cannot switch one of them back off.
+    """
+    environment = {
+        name: value
+        for name, value in os.environ.items()
+        if not name.startswith(reviewer.env_prefix)
+    }
+    environment[reviewer.home_env] = str(reviewer_home(reviewer))
+    environment.update(reviewer.disables)
+    if (key := api_key(reviewer)) is not None:
+        environment[reviewer.key_env] = key
+    return environment
+
+
 def invoke(
     reviewer: Reviewer,
     repo: Path,
@@ -145,8 +221,9 @@ def invoke(
     """
     Run the Reviewer in the checkout and wait for it, capturing its event stream and its stderr
     beside the Run's inputs. The prompt goes as a single argv element and is never piped: an agent
-    CLI reads a piped prompt as something else entirely. The rest of the care this needs — stdin,
-    the output files, the process group the time cap kills — lives in `run_capped`.
+    CLI reads a piped prompt as something else entirely. What it runs in is not the caller's
+    environment but `hermetic_env`, so the prompt is all it was told. The rest of the care this
+    needs — stdin, the output files, the process group the time cap kills — lives in `run_capped`.
     """
     argv = [
         reviewer.binary,
@@ -156,10 +233,6 @@ def invoke(
         *((reviewer.variant_flag, variant) if variant else ()),
         prompt,
     ]
-    environment = {**os.environ}
-    key = api_key(reviewer)
-    if key is not None:
-        environment[reviewer.key_env] = key
     started = time.monotonic()
     with (
         (run_dir / EVENTS_NAME).open("wb") as events,
@@ -168,7 +241,7 @@ def invoke(
         code = run_capped(
             argv,
             cwd=repo,
-            env=environment,
+            env=hermetic_env(reviewer),
             stdout=events,
             stderr=errors,
             timeout_seconds=timeout_seconds,

@@ -14,8 +14,12 @@ It complements, not replaces, the stock PR-Agent deployment (`/describe`, `/revi
    Each tool gets its own time cap (`--signal-timeout`) and keeps the tail of its output; a missing
    tool is a skip, and none of them can fail the run. Output lands in `.deep-review/signal/` as
    *hypotheses* for the agent, never as findings on their own.
-3. `prompts/review.md`: scope → investigate (grep, read, run) → judge. The agent writes
-   `.deep-review/findings.json` (P0/P1/P2, evidence, failure scenario, optional fix, 0-5 score).
+3. `prompts/review.md`: scope → investigate (grep, read, run) → judge. The agent runs with its
+   own instruction files, skills, plugins and MCP servers switched off, so what it was told is the
+   review prompt rather than whatever the machine or the branch carries (ADR-0002); it keeps
+   `bash` and the rest of its toolset, because a finding it cannot execute is not a finding. It
+   writes `.deep-review/findings.json` (P0/P1/P2, evidence, failure scenario, optional fix,
+   0-5 score).
 4. `scripts/post_review.py`: deletes the previous run's inline comments, posts one review with
    inline comments (GitHub suggestion blocks when a fix is given) and upserts a summary comment.
 5. `.deep-review/` is uploaded as a workflow artifact for debugging.

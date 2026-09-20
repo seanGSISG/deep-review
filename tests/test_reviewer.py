@@ -17,6 +17,7 @@ from deep_review.reviewer import (
     invoke,
     preflight,
     resolve_model,
+    reviewer_home,
 )
 
 PROMPT = "Review the diff.\n\nWrite .deep-review/findings.json.\n"
@@ -76,12 +77,75 @@ def test_pi_sees_only_the_review_prompt_too(repo: Path, pi_reviewer: FakeReviewe
         "--no-extensions",
         "--no-skills",
         "--no-prompt-templates",
+        "--no-context-files",
+        "--no-approve",
         "--model",
         "zai/glm-5.3",
         "--thinking",
         "medium",
     ]
     assert pi_reviewer.stdin == "/dev/null"
+
+
+def test_the_reviewer_reads_its_settings_from_a_directory_of_ours(
+    repo: Path, reviewer: FakeReviewer, tmp_path: Path
+) -> None:
+    run(repo)
+
+    home = Path(reviewer.env["XDG_CONFIG_HOME"])
+    assert home == reviewer_home(OPENCODE)
+    assert home.is_relative_to(tmp_path), "the Run read the developer's own opencode config"
+    # Not a claim that it stays empty — the CLIs fill it with their own state, which is the point
+    # of giving them one. The claim is that a Run puts nothing in it: a Run that started seeding
+    # this directory would be handing the Reviewer context again, from a new direction.
+    assert list(home.glob("*")) == [], "a Run seeded the Reviewer's settings directory"
+    # What a Reviewer does need: a key, and enough of a shell for its bash tool to be worth having.
+    assert reviewer.env["ZHIPU_API_KEY"] == "test-key"
+    assert "PATH" in reviewer.env
+
+
+def test_the_context_opencode_would_load_on_its_own_is_turned_off(
+    repo: Path, reviewer: FakeReviewer
+) -> None:
+    run(repo)
+
+    # The project walk from cwd to the worktree root, and with it the .opencode directories whose
+    # presence starts an npm install inside the checkout under review.
+    assert reviewer.env["OPENCODE_DISABLE_PROJECT_CONFIG"] == "1"
+    # CLAUDE.md, from the checkout and from ~/.claude, and the skills under ~/.claude/skills and
+    # .claude/skills - one of which is the Skill that asks for a Run in the first place.
+    assert reviewer.env["OPENCODE_DISABLE_CLAUDE_CODE"] == "1"
+
+
+def test_the_developers_own_variables_for_the_cli_do_not_reach_it(
+    repo: Path, reviewer: FakeReviewer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A whole opencode config, inline, exported by the shell the CLI was started from.
+    monkeypatch.setenv("OPENCODE_CONFIG_CONTENT", '{"instructions": ["AGENTS.md"]}')
+    monkeypatch.setenv("OPENCODE_CONFIG_DIR", "/home/dev/.config/opencode")
+    monkeypatch.setenv("OPENCODE_DISABLE_CLAUDE_CODE", "0")
+
+    run(repo)
+
+    assert "OPENCODE_CONFIG_CONTENT" not in reviewer.env
+    assert "OPENCODE_CONFIG_DIR" not in reviewer.env
+    assert reviewer.env["OPENCODE_DISABLE_CLAUDE_CODE"] == "1", "the shell overrode a Run's flag"
+
+
+def test_pi_reads_its_settings_from_a_directory_of_ours_too(
+    repo: Path, pi_reviewer: FakeReviewer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(Path.home() / ".pi" / "agent"))
+
+    run(repo, PI, variant="medium")
+
+    # pi's settings, packages, extensions, skills, prompts and project trust all resolve from here.
+    home = Path(pi_reviewer.env["PI_CODING_AGENT_DIR"])
+    assert home == reviewer_home(PI)
+    assert home != reviewer_home(OPENCODE), "the two Reviewers shared one settings directory"
+    assert home.is_relative_to(tmp_path), "the Run read the developer's own pi agent directory"
+    assert list(home.glob("*")) == [], "a Run seeded the Reviewer's settings directory"
+    assert pi_reviewer.env["ZAI_API_KEY"] == "test-key"
 
 
 def test_a_variant_reaches_the_reviewers_own_flag(repo: Path, reviewer: FakeReviewer) -> None:
