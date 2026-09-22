@@ -23,10 +23,11 @@ dev = ["pytest>=8.3", "ruff>=0.14", "ty>=0.0.1a21"]
 [tool.hatch.build.targets.wheel]
 packages = ["src/deep_review"]
 
-# The review prompt lives at the repo root as its single source and is mapped into the wheel,
-# where the CLI reads it back through importlib.resources.
+# The review prompt and the Skill live at the repo root as their single source and are mapped
+# into the wheel, where the CLI reads them back through importlib.resources.
 [tool.hatch.build.targets.wheel.force-include]
 "prompts/review.md" = "deep_review/_data/review.md"
+"skills/pre-pr-review" = "deep_review/_data/skills/pre-pr-review"
 
 [tool.ruff]
 line-length = 100

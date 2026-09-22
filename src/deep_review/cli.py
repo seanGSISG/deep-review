@@ -12,6 +12,7 @@ from deep_review.report import SEVERITIES, Report, Severity, serialise
 from deep_review.reviewer import DEFAULT_REVIEWER, REVIEWERS, preflight, resolve_model
 from deep_review.run import RunOptions, execute
 from deep_review.signal import STEP_TIMEOUT_SECONDS
+from deep_review.skill import TARGETS, install
 
 # Above this many changed lines the Reviewer collapses, so the Size gate skips it (MVP2 item 1).
 MAX_DIFF_LINES = 10_000
@@ -28,6 +29,8 @@ def main(argv: list[str] | None = None) -> int:
     """Parse arguments, run the requested command, and return the process exit code."""
     args = _parser().parse_args(argv)
     try:
+        if args.command == "install-skill":
+            return _install_skill(args)
         return _review(args)
     except UsageError as error:
         print(f"deep-review: {error}", file=sys.stderr)
@@ -102,7 +105,30 @@ def _parser() -> argparse.ArgumentParser:
         help="kill each Signal tool after this long; raise it for a repo whose own test suite "
         "takes longer than this (default: %(default)s)",
     )
+    install_skill = commands.add_parser(
+        "install-skill", help="symlink the Skill into the Coding agents' skill directories"
+    )
+    install_skill.add_argument(
+        "--target",
+        choices=[*sorted(TARGETS), "all"],
+        default="all",
+        help="claude covers Claude Code and opencode via ~/.claude/skills; "
+        "pi is ~/.pi/agent/skills (default: %(default)s)",
+    )
+    install_skill.add_argument(
+        "--force",
+        action="store_true",
+        help="replace whatever is at the target path, if it is not already our symlink",
+    )
     return parser
+
+
+def _install_skill(args: argparse.Namespace) -> int:
+    """Link the Skill into the chosen agents' skill directories and say where it went."""
+    targets = sorted(TARGETS) if args.target == "all" else [args.target]
+    for link in install(targets, args.force):
+        print(f"{link} -> {link.resolve()}")
+    return 0
 
 
 def _review(args: argparse.Namespace) -> int:

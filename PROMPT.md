@@ -191,7 +191,7 @@ Findings and the run report are Pydantic models (Sean prefers Pydantic at bounda
 ## Deliverable 2: the agent skill
 
 Coding agents already have a shell, so the skill is a `SKILL.md`, not an MCP server. Put it at
-`skills/deep-review/SKILL.md` in this repo, following the Agent Skills format (YAML frontmatter with
+`skills/pre-pr-review/SKILL.md` in this repo (not `deep-review`: that is the CLI, and Claude Code carries a skill of that name), following the Agent Skills format (YAML frontmatter with
 `name` and a `description` that says when to trigger, then instructions; `name` must equal the directory
 name and match `^[a-z0-9]+(-[a-z0-9]+)*$`). Verified load paths on this machine: Claude Code and opencode
 both read `~/.claude/skills/<name>/SKILL.md` (opencode also reads `~/.config/opencode/skills/` and
@@ -240,7 +240,7 @@ names and comments. The Python-over-TypeScript choice is recorded in `docs/adr/0
 - Python 3.12 floor. Runtime dependency: Pydantic only. CLI is argparse; output is plain text, no Rich.
 - Signal collection is ported to Python (one typed function per tool, each with its own 300 s timeout
   and 60,000-byte cap, same gates and filenames as `collect_signal.sh`); the shell script is deleted.
-- `prompts/review.md` and `skills/deep-review/SKILL.md` stay at the repo root as the single source and
+- `prompts/review.md` and `skills/pre-pr-review/SKILL.md` stay at the repo root as the single source and
   are mapped into the wheel with hatchling `force-include`; the CLI reads them via `importlib.resources`.
 - ast-grep rules: the CLI clones `coderabbitai/ast-grep-essentials` at a pinned commit (constant in the
   code) into `~/.cache/deep-review/ast-grep-essentials` when missing; `AST_GREP_RULES` overrides.
@@ -364,7 +364,7 @@ names and comments. The Python-over-TypeScript choice is recorded in `docs/adr/0
    comments and updates the summary comment in place (no duplicates after two runs).
 4. The workflow on `pr-review-sandbox` (caller already installed there) goes green on a new push to PR #2
    using the CLI, and the review it posts matches acceptance 1.
-5. `deep-review install-skill --target claude` puts the skill in `~/.claude/skills/deep-review/`, and a
+5. `deep-review install-skill --target claude` puts the skill in `~/.claude/skills/pre-pr-review/`, and a
    Claude Code session in the sandbox checkout invokes it when asked "review this branch".
 6. `just test`, `just lint` and `ty check` pass.
 

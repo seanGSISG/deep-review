@@ -22,3 +22,15 @@ def _prompt_source() -> str:
     return (Path(__file__).resolve().parents[2] / "prompts" / "review.md").read_text(
         encoding="utf-8"
     )
+
+
+def skill_dir() -> Path:
+    """
+    The Skill's directory, skills/pre-pr-review at the repo root: the wheel carries it as package
+    data and a source checkout reads it where it lives. It is a real directory either way, because
+    install-skill symlinks to it and a loader follows the link to SKILL.md.
+    """
+    packaged = resources.files("deep_review").joinpath("_data/skills/pre-pr-review")
+    if packaged.is_dir():
+        return Path(str(packaged))
+    return Path(__file__).resolve().parents[2] / "skills" / "pre-pr-review"
