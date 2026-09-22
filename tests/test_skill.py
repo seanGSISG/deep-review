@@ -1,14 +1,17 @@
 """The Skill: what it tells the Coding agent, and `install-skill` putting it in place."""
 
+import json
 import re
 from pathlib import Path
 
 import pytest
 
+from deep_review import __version__
 from deep_review.cli import main
 from deep_review.resources import skill_dir
 
 SKILL = skill_dir() / "SKILL.md"
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def frontmatter() -> dict[str, str]:
@@ -34,6 +37,17 @@ def test_the_skill_states_the_rules_of_the_round_loop() -> None:
     assert "quote the code or run something" in body, "dismissal takes the Finding's own standard"
     assert "Uncertain counts as real for P0 and P1" in body
     assert "different model family" in body
+
+
+def test_the_plugin_manifest_carries_the_package_version() -> None:
+    """
+    Claude Code pins a marketplace plugin to this version string, so a release that bumps the
+    package but not the manifest strands plugin users on the old Skill.
+    """
+    manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+
+    assert manifest["version"] == __version__
+    assert manifest["name"] == skill_dir().name, "one Skill, one plugin, one name"
 
 
 @pytest.fixture

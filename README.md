@@ -24,6 +24,26 @@ It complements, not replaces, the stock PR-Agent deployment (`/describe`, `/revi
    inline comments (GitHub suggestion blocks when a fix is given) and upserts a summary comment.
 5. `.deep-review/` is uploaded as a workflow artifact for debugging.
 
+## Use it locally, before the PR exists
+The CLI reviews the current branch in your own checkout (Local mode):
+```sh
+uv tool install git+https://github.com/seanGSISG/deep-review
+deep-review review            # table of Findings; --json for the whole Report
+```
+It needs the Reviewer binary on PATH (`opencode`, or `pi` with `--agent pi`) and a Z.AI key in the
+environment; the preflight names whichever is missing.
+
+The `pre-pr-review` skill teaches a coding agent the loop around it: run, verify the Findings in a
+read-only subagent, fix what is real, at most twice, then push. Claude Code installs it as a plugin:
+```
+/plugin marketplace add seanGSISG/claude-depot
+/plugin install pre-pr-review@claude-depot
+```
+opencode and pi read it from their own skill directories, which the CLI links for you:
+```sh
+deep-review install-skill     # --target claude|pi|all, --force to replace what is there
+```
+
 ## Use it in a repo
 ```sh
 cp templates/caller.yml <repo>/.github/workflows/deep-review.yml

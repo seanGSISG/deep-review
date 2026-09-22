@@ -1,0 +1,13 @@
+{
+  "name": "pre-pr-review",
+  "version": "0.1.0",
+  "description": "Pre-PR review of the current branch by a Reviewer of a different model family: the pre-pr-review skill drives the deep-review CLI, verifies its Findings in a subagent, and fixes what is real before the push",
+  "author": {
+    "name": "seanGSISG",
+    "url": "https://github.com/seanGSISG"
+  },
+  "homepage": "https://github.com/seanGSISG/deep-review",
+  "repository": "https://github.com/seanGSISG/deep-review",
+  "license": "MIT",
+  "keywords": ["code-review", "pre-pr", "second-opinion", "opencode", "pi", "glm", "verifier"]
+}
