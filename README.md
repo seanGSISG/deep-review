@@ -24,25 +24,39 @@ It complements, not replaces, the stock PR-Agent deployment (`/describe`, `/revi
    inline comments (GitHub suggestion blocks when a fix is given) and upserts a summary comment.
 5. `.deep-review/` is uploaded as a workflow artifact for debugging.
 
-## Use it locally, before the PR exists
-The CLI reviews the current branch in your own checkout (Local mode):
-```sh
-uv tool install git+https://github.com/seanGSISG/deep-review
-deep-review review            # table of Findings; --json for the whole Report
-```
-It needs the Reviewer binary on PATH (`opencode`, or `pi` with `--agent pi`) and a Z.AI key in the
-environment; the preflight names whichever is missing.
+## Install
+Two paths. Both end with `deep-review` and the Reviewer (`opencode`, a standalone binary) on the
+machine and a Z.AI coding-plan key the CLI can see. Linux and macOS; Windows needs Git Bash for the
+opencode installer and is untested.
 
-The `pre-pr-review` skill teaches a coding agent the loop around it: run, verify the Findings in a
-read-only subagent, fix what is real, at most twice, then push. Claude Code installs it as a plugin:
+**Claude Code.** Install the plugin; it asks for the key at enable time and keeps it in the
+keychain, and its SessionStart hook exports it for the agent's shell. Then let the CLI install the rest:
 ```
 /plugin marketplace add seanGSISG/claude-depot
 /plugin install pre-pr-review@claude-depot
 ```
-opencode and pi read it from their own skill directories, which the CLI links for you:
 ```sh
-deep-review install-skill     # --target claude|pi|all, --force to replace what is there
+curl -fsSL https://raw.githubusercontent.com/seanGSISG/deep-review/main/install.sh | sh
 ```
+That script installs uv if it is missing, the CLI from its tagged release, and runs
+`deep-review setup --yes`, which installs the Reviewer and links the Skill for any other coding
+agent on the machine. If the CLI is ever missing, the plugin says so at session start.
+
+**Everything else** (opencode, pi, Codex, a plain terminal). Run the same one-liner, then export the key:
+```sh
+export Z_AI_API_KEY=...   # in your shell profile; a coding-plan key from https://z.ai
+```
+`deep-review setup` is idempotent: run it any time to see what is missing and fix what it can. It
+never asks for the key itself, so a secret never passes through a transcript.
+
+## Use it locally, before the PR exists
+```sh
+deep-review review            # table of Findings; --json for the whole Report
+```
+The `pre-pr-review` skill teaches a coding agent the loop around it: run, verify the Findings in a
+read-only subagent, fix what is real, at most twice, then push. Claude Code loads it from the
+plugin; opencode and pi read it from their own skill directories, which `setup` links (or
+`deep-review install-skill --target claude|pi|all`, `--force` to replace what is there).
 
 ## Use it in a repo
 ```sh

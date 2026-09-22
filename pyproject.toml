@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deep-review"
-version = "0.1.0"
+version = "0.2.0"
 description = "A second-opinion pull-request reviewer: a Reviewer of a different model family proves defects by execution and quotation"
 readme = "README.md"
 license = "MIT"

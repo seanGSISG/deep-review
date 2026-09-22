@@ -7,10 +7,11 @@ from pathlib import Path
 from deep_review import UsageError, __version__
 from deep_review.git import build_diff, repo_root, resolve_base
 from deep_review.local import local_description
-from deep_review.render import render
+from deep_review.render import LABEL_WIDTH, render
 from deep_review.report import SEVERITIES, Report, Severity, serialise
 from deep_review.reviewer import DEFAULT_REVIEWER, REVIEWERS, preflight, resolve_model
 from deep_review.run import RunOptions, execute
+from deep_review.setup import ready, setup
 from deep_review.signal import STEP_TIMEOUT_SECONDS
 from deep_review.skill import TARGETS, install
 
@@ -31,6 +32,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "install-skill":
             return _install_skill(args)
+        if args.command == "setup":
+            return _setup(args)
         return _review(args)
     except UsageError as error:
         print(f"deep-review: {error}", file=sys.stderr)
@@ -120,7 +123,27 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="replace whatever is at the target path, if it is not already our symlink",
     )
+    setup_parser = commands.add_parser(
+        "setup", help="make this machine ready for a Run: the Reviewer, the key and the Skill"
+    )
+    setup_parser.add_argument(
+        "--agent",
+        choices=sorted(REVIEWERS),
+        default=DEFAULT_REVIEWER,
+        help="which Reviewer to set up (default: %(default)s)",
+    )
+    setup_parser.add_argument(
+        "--yes", action="store_true", help="install the Reviewer without asking first"
+    )
     return parser
+
+
+def _setup(args: argparse.Namespace) -> int:
+    """Print the setup table; exit 2 while anything in it is still missing."""
+    rows = setup(REVIEWERS[args.agent], assume_yes=args.yes)
+    for row in rows:
+        print(f"{row.name:<{LABEL_WIDTH}}{row.status:<{LABEL_WIDTH}}{row.detail}")
+    return 0 if ready(rows) else 2
 
 
 def _install_skill(args: argparse.Namespace) -> int:

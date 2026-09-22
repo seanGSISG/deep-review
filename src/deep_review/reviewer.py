@@ -40,6 +40,12 @@ class Reviewer:
     default_variant: str | None
     # The environment variable this CLI reads the Z.AI key from.
     key_env: str
+    # The release the CLI was tested against, and what `setup` installs.
+    pinned_version: str
+    # The official installer script, when this CLI ships a standalone binary that way; `setup`
+    # pipes it to bash with the pinned version. None for a CLI that only ships over npm.
+    install_script: str | None
+    # What preflight tells a human to run when the binary is missing.
     install_hint: str
     flags: tuple[str, ...]
     model_flag: str
@@ -66,7 +72,9 @@ OPENCODE = Reviewer(
     default_model="zai-coding-plan/glm-5.3",
     default_variant=None,
     key_env="ZHIPU_API_KEY",
-    install_hint="npm install -g opencode-ai@1.18.31",
+    pinned_version="1.18.31",
+    install_script="https://opencode.ai/install",
+    install_hint="deep-review setup",
     flags=("run", "--format", "json", "--pure", "--dangerously-skip-permissions"),
     model_flag="-m",
     variant_flag="--variant",
@@ -98,6 +106,8 @@ PI = Reviewer(
     # pi thinks at its model's own default unless told otherwise; medium is what the bake-off ran.
     default_variant="medium",
     key_env="ZAI_API_KEY",
+    pinned_version="0.85.1",
+    install_script=None,
     install_hint="npm install -g @earendil-works/pi-coding-agent@0.85.1",
     flags=(
         "-p",

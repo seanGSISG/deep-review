@@ -324,7 +324,7 @@ def test_a_missing_reviewer_binary_exits_2_before_the_run(
 
     assert main(["review"]) == 2
 
-    assert "install it with `npm install -g opencode-ai" in capsys.readouterr().err
+    assert "install it with `deep-review setup`" in capsys.readouterr().err
     assert not (branch / ".deep-review").exists()
 
 

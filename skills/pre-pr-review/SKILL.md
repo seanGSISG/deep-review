@@ -15,8 +15,11 @@ it can cheaply, before the PR exists.
 Your job is the Round loop below: request a Run, have the Findings verified, fix what is real,
 and carry on with the push or PR the user asked for. The CLI does the work.
 
-If the CLI is not on PATH, install it: `uv tool install git+https://github.com/seanGSISG/deep-review`.
-It also needs the Reviewer binary and a Z.AI key; its own preflight names whichever is missing.
+If the CLI is not on PATH, install it and the Reviewer with one command:
+`curl -fsSL https://raw.githubusercontent.com/seanGSISG/deep-review/main/install.sh | sh`. If the
+CLI's preflight still refuses, run `deep-review setup` and relay its table to the user. The one thing
+it cannot fix is the Z.AI key: ask the user to configure it in the plugin or export it in their
+shell, and never ask them to paste the key into the chat.
 
 ## The Round loop
 

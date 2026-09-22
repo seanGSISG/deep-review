@@ -189,7 +189,7 @@ def test_a_missing_reviewer_binary_is_a_usage_error_with_its_own_install_hint(
 ) -> None:
     monkeypatch.setenv("PATH", str(tmp_path))
 
-    with pytest.raises(UsageError, match="npm install -g opencode-ai"):
+    with pytest.raises(UsageError, match="deep-review setup"):
         preflight(OPENCODE)
     with pytest.raises(UsageError, match="npm install -g @earendil-works/pi-coding-agent"):
         preflight(PI)

@@ -16,6 +16,7 @@ test-live *ARGS:
 lint:
     uv run ruff check .
     uv run ty check
+    shellcheck install.sh hooks/session-start.sh
 
 # Format.
 fmt:
