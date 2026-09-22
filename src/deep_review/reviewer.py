@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from deep_review import UsageError, cache_dir
+from deep_review.credentials import read_key
 from deep_review.events import opencode_stats, pi_stats
 from deep_review.process import run_capped
 from deep_review.report import RunStats
@@ -173,8 +174,11 @@ def preflight(reviewer: Reviewer) -> None:
 
 
 def api_key(reviewer: Reviewer) -> str | None:
-    """The Z.AI key, from the variable this Reviewer wants or the one Sean's machine exports."""
-    return os.environ.get(reviewer.key_env) or os.environ.get(KEY_FALLBACK)
+    """
+    The Z.AI key: the variable this Reviewer's own CLI reads, then the CLI's fallback name, then
+    the file `deep-review setup` stored. The environment wins so a shell can override the file.
+    """
+    return os.environ.get(reviewer.key_env) or os.environ.get(KEY_FALLBACK) or read_key()
 
 
 def resolve_model(reviewer: Reviewer, model: str | None) -> str:

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Bootstrap deep-review on a machine that has nothing: uv if it is missing, then the CLI from a
-# tagged release, then `deep-review setup`, which installs the Reviewer and links the Skill.
+# tagged release, then `deep-review setup`, which installs the Reviewer, asks for the key and links the Skill.
 # Each command is printed before it runs. Idempotent: run it again to reinstall or upgrade.
 #
 #   curl -fsSL https://raw.githubusercontent.com/seanGSISG/deep-review/main/install.sh | sh
@@ -8,7 +8,7 @@
 # DEEP_REVIEW_VERSION picks another tag or branch; the default is the release this script shipped in.
 set -eu
 
-VERSION="${DEEP_REVIEW_VERSION:-v0.2.1}"
+VERSION="${DEEP_REVIEW_VERSION:-v0.3.0}"
 say() { printf '\n$ %s\n' "$*"; }
 
 if ! command -v uv >/dev/null 2>&1; then

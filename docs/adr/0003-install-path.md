@@ -26,17 +26,23 @@ prompt.
 
 ## The key
 
-Claude Code's plugin manifest can declare a `sensitive` user-config value: asked for at enable
-time with masked input, kept in the OS keychain, and handed only to hook processes. The plugin's
-SessionStart hook exports it under the CLI's fallback name, `Z_AI_API_KEY`, through the session env
-file, unless the shell already carries a key. The value never enters the model's context. Everyone
-outside Claude Code exports the variable in their shell, which is what opencode and pi users
-already do for every provider; a config file of ours would be a second place for a secret to live.
+`deep-review setup` asks for it on the terminal with the input hidden (getpass opens /dev/tty, so
+this works under `curl ... | sh` too) and stores it in `$XDG_CONFIG_HOME/deep-review/zai-api-key`,
+directory 700, file 600. The environment still wins, so a shell export or a CI secret overrides
+the file. The coding agent never asks for the key: a secret typed into a chat lands in the
+transcript, and the plugin's SessionStart hook says so when it finds no key.
 
+We first tried Claude Code's plugin `userConfig` with `sensitive: true`, which stores in the
+keychain and hands the value to hooks. It was abandoned: the enable-time dialog did not appear
+for Sean, a CLI install only prints "run `/plugin configure`", and the value reaches the agent's
+shell only through a hook writing the session env file. Three moving parts, one of them not under
+our control, for a prompt the CLI can do itself in ten lines, and it left opencode and pi users
+with nothing.
 ## Consequences
 
 - The hook runs at every session start for plugin users. It is a dozen lines of bash and prints
-  nothing when the machine is ready; when the CLI or Reviewer is missing it prints one line.
+  nothing when the machine is ready; when the CLI, the Reviewer or the key is missing it prints
+  one line.
 - The bootstrap pins a release tag, so a release means a tag and a bump of the pinned version in
   `install.sh`.
 - Windows is unbuilt: the opencode installer and the hook are bash.

@@ -15,11 +15,11 @@ it can cheaply, before the PR exists.
 Your job is the Round loop below: request a Run, have the Findings verified, fix what is real,
 and carry on with the push or PR the user asked for. The CLI does the work.
 
-If the CLI is not on PATH, install it and the Reviewer with one command:
-`curl -fsSL https://raw.githubusercontent.com/seanGSISG/deep-review/main/install.sh | sh`. If the
-CLI's preflight still refuses, run `deep-review setup` and relay its table to the user. The one thing
-it cannot fix is the Z.AI key: ask the user to configure it in the plugin or export it in their
-shell, and never ask them to paste the key into the chat.
+If the CLI is not on PATH, or its preflight refuses, the user runs one command in a terminal:
+`curl -fsSL https://raw.githubusercontent.com/seanGSISG/deep-review/main/install.sh | sh` (or
+`deep-review setup` once the CLI exists). That installs the Reviewer and asks for the Z.AI key with
+the input hidden. Tell the user to run it; never ask them to paste the key into the chat, and never
+run it yourself through a tool, because the key prompt needs their terminal.
 
 ## The Round loop
 

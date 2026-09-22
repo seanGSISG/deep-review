@@ -25,29 +25,24 @@ It complements, not replaces, the stock PR-Agent deployment (`/describe`, `/revi
 5. `.deep-review/` is uploaded as a workflow artifact for debugging.
 
 ## Install
-Two paths. Both end with `deep-review` and the Reviewer (`opencode`, a standalone binary) on the
-machine and a Z.AI coding-plan key the CLI can see. Linux and macOS; Windows needs Git Bash for the
-opencode installer and is untested.
+One command, in a terminal. It installs uv if it is missing, the CLI from its tagged release, then
+runs `deep-review setup --yes`, which installs the Reviewer (`opencode`, a standalone binary), asks
+for your Z.AI coding-plan key with the input hidden, and links the Skill for any other coding agent
+on the machine:
+```sh
+curl -fsSL https://raw.githubusercontent.com/seanGSISG/deep-review/main/install.sh | sh
+```
+The key is stored readable by you alone, in `~/.config/deep-review/zai-api-key`; exporting
+`Z_AI_API_KEY` in your shell overrides it, and a coding agent is never the one to ask for it. Run
+`deep-review setup` any time to see what is missing and fix what it can. A coding-plan key comes
+from https://z.ai. Linux and macOS; Windows needs Git Bash for the opencode installer and is untested.
 
-**Claude Code.** Install the plugin; it asks for the key at enable time and keeps it in the
-keychain, and its SessionStart hook exports it for the agent's shell. Then let the CLI install the rest:
+**Claude Code** additionally gets the Skill as a plugin, which also says at session start when the
+CLI, the Reviewer or the key is missing:
 ```
 /plugin marketplace add seanGSISG/claude-depot
 /plugin install pre-pr-review@claude-depot
 ```
-```sh
-curl -fsSL https://raw.githubusercontent.com/seanGSISG/deep-review/main/install.sh | sh
-```
-That script installs uv if it is missing, the CLI from its tagged release, and runs
-`deep-review setup --yes`, which installs the Reviewer and links the Skill for any other coding
-agent on the machine. If the CLI is ever missing, the plugin says so at session start.
-
-**Everything else** (opencode, pi, Codex, a plain terminal). Run the same one-liner, then export the key:
-```sh
-export Z_AI_API_KEY=...   # in your shell profile; a coding-plan key from https://z.ai
-```
-`deep-review setup` is idempotent: run it any time to see what is missing and fix what it can. It
-never asks for the key itself, so a secret never passes through a transcript.
 
 ## Use it locally, before the PR exists
 ```sh

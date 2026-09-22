@@ -1,5 +1,7 @@
 """`deep-review setup`: the machine made ready for a Run, installing what the CLI can."""
 
+import getpass
+import os
 import shutil
 import subprocess
 import sys
@@ -8,7 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from deep_review import UsageError
-from deep_review.reviewer import KEY_FALLBACK, Reviewer, api_key
+from deep_review.credentials import key_path, read_key, store_key
+from deep_review.reviewer import KEY_FALLBACK, Reviewer
 from deep_review.skill import install
 
 # Seconds an installer script gets before it is given up on.
@@ -23,11 +26,8 @@ def install_dirs() -> tuple[Path, ...]:
     return (Path.home() / ".opencode" / "bin",)
 
 
-# Where a Claude Code user puts the key instead of the shell: the plugin asks for it at enable
-# time and keeps it in the keychain, and its SessionStart hook exports it for the agent's shell.
-PLUGIN_KEY_HINT = (
-    "or configure it in the pre-pr-review plugin (Claude Code: /plugin, then configure)"
-)
+# What the terminal shows before the hidden key entry.
+KEY_PROMPT = "Z.AI coding-plan key (hidden; stored for this user only, empty to skip): "
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,8 +44,9 @@ def setup(reviewer: Reviewer, *, assume_yes: bool) -> list[Row]:
     Check the Reviewer binary, the key and the Skill links, fixing what can be fixed from here.
     A Reviewer with an official installer is installed after a confirmation that shows the exact
     command (or straight away with `assume_yes`); one that only ships over npm is left to the
-    human, because Node is not ours to install. The key is never asked for: a secret typed at a
-    prompt ends up in a transcript, and both places it belongs already have their own prompt.
+    human, because Node is not ours to install. A missing key is asked for on the terminal with
+    the input hidden and stored readable by this user alone; it is the one thing the coding
+    agent must never ask for, because a secret typed into a chat lands in the transcript.
     """
     return [_reviewer_row(reviewer, assume_yes), _key_row(reviewer), _skill_row()]
 
@@ -85,13 +86,17 @@ def _reviewer_row(reviewer: Reviewer, assume_yes: bool) -> Row:
 
 
 def _key_row(reviewer: Reviewer) -> Row:
-    if api_key(reviewer) is not None:
+    if os.environ.get(reviewer.key_env) or os.environ.get(KEY_FALLBACK):
         return Row("key", "ok", f"{reviewer.key_env} or {KEY_FALLBACK} is set")
-    return Row(
-        "key",
-        "missing",
-        f"export {KEY_FALLBACK} in your shell profile, {PLUGIN_KEY_HINT}",
-    )
+    if read_key() is not None:
+        return Row("key", "ok", f"stored in {key_path()}")
+    how = f"run `deep-review setup` in a terminal, or export {KEY_FALLBACK} in your shell profile"
+    if not terminal_present():
+        return Row("key", "missing", how)
+    value = ask_hidden(KEY_PROMPT).strip()
+    if not value:
+        return Row("key", "missing", how)
+    return Row("key", "stored", f"in {store_key(value)}, readable by this user only")
 
 
 def _skill_row() -> Row:
@@ -114,6 +119,23 @@ def _skill_row() -> Row:
 def ask(prompt: str) -> bool:
     """A y/N question on the terminal. Anything but a leading y is no."""
     return input(f"{prompt} [y/N] ").strip().lower().startswith("y")
+
+
+def ask_hidden(prompt: str) -> str:
+    """
+    A secret typed on the terminal, not echoed. getpass opens /dev/tty itself, so this works
+    when stdin is a pipe, which it is under `curl ... | sh`.
+    """
+    return getpass.getpass(prompt)
+
+
+def terminal_present() -> bool:
+    """Whether there is a terminal to ask on. A CI job or a hook has none and gets no prompt."""
+    try:
+        with open("/dev/tty"):
+            return True
+    except OSError:
+        return False
 
 
 def install_from_script(reviewer: Reviewer) -> None:

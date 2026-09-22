@@ -1,6 +1,6 @@
 {
   "name": "pre-pr-review",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Pre-PR review of the current branch by a Reviewer of a different model family: the pre-pr-review skill drives the deep-review CLI, verifies its Findings in a subagent, and fixes what is real before the push",
   "author": {
     "name": "seanGSISG",
@@ -17,13 +17,5 @@
     "pi",
     "glm",
     "verifier"
-  ],
-  "userConfig": {
-    "zai_api_key": {
-      "type": "string",
-      "title": "Z.AI API key",
-      "description": "Coding-plan key the Reviewer runs on. Leave empty if Z_AI_API_KEY is already exported in your shell.",
-      "sensitive": true
-    }
-  }
+  ]
 }

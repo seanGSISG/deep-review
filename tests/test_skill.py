@@ -127,61 +127,46 @@ def test_force_replaces_whatever_was_there(home: Path) -> None:
 HOOK = ROOT / "hooks" / "session-start.sh"
 
 
-def test_the_manifest_asks_for_the_key_safely_and_optionally() -> None:
+def test_the_plugin_ships_the_session_start_hook() -> None:
     manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-    option = manifest["userConfig"]["zai_api_key"]
-
-    assert option["sensitive"] is True, "masked at the prompt and kept in the keychain"
-    assert option.get("required", False) is False, "a key already exported must not be asked twice"
+    assert "userConfig" not in manifest, "the key is entered on a terminal by setup, not here"
     hooks = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     assert "session-start.sh" in json.dumps(hooks["hooks"]["SessionStart"])
     assert HOOK.stat().st_mode & 0o111, "the hook must be executable"
 
 
-def run_hook(tmp_path: Path, env: dict[str, str], path_with: tuple[str, ...]) -> tuple[str, str]:
-    """
-    Run the SessionStart hook the way Claude Code does, with only the named binaries on PATH.
-    Returns what it printed and what it appended to the session env file.
-    """
+def run_hook(tmp_path: Path, env: dict[str, str], path_with: tuple[str, ...]) -> str:
+    """Run the SessionStart hook with only the named binaries on PATH; returns what it printed."""
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     for name in path_with:
         (bin_dir / name).write_text("#!/bin/sh\n", encoding="utf-8")
         (bin_dir / name).chmod(0o755)
-    env_file = tmp_path / "env.sh"
-    env_file.touch()
     result = subprocess.run(
         [str(HOOK)],
-        env={"PATH": f"{bin_dir}:/usr/bin:/bin", "CLAUDE_ENV_FILE": str(env_file), **env},
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(tmp_path), **env},
         capture_output=True,
         text=True,
         check=True,
     )
-    return result.stdout, env_file.read_text(encoding="utf-8")
+    return result.stdout
 
 
-def test_the_hook_exports_the_configured_key_for_the_agents_shell(tmp_path: Path) -> None:
-    out, env = run_hook(
-        tmp_path, {"CLAUDE_PLUGIN_OPTION_ZAI_API_KEY": "sk-te$t"}, ("deep-review", "opencode")
-    )
+def test_the_hook_says_nothing_when_the_machine_is_ready(tmp_path: Path) -> None:
+    assert run_hook(tmp_path, {"Z_AI_API_KEY": "k"}, ("deep-review", "opencode")) == ""
 
-    assert env == "export Z_AI_API_KEY=sk-te\\$t\n", "quoted, so the shell reads it back verbatim"
-    assert out == "", "nothing to say when the machine is ready"
-
-
-def test_the_hook_leaves_a_key_the_shell_already_has_alone(tmp_path: Path) -> None:
-    _, env = run_hook(
-        tmp_path,
-        {"CLAUDE_PLUGIN_OPTION_ZAI_API_KEY": "from-plugin", "Z_AI_API_KEY": "from-shell"},
-        ("deep-review", "opencode"),
-    )
-
-    assert env == ""
+    key_file = tmp_path / ".config" / "deep-review" / "zai-api-key"
+    key_file.parent.mkdir(parents=True)
+    key_file.write_text("k\n", encoding="utf-8")
+    assert run_hook(tmp_path, {}, ("deep-review", "opencode")) == ""
 
 
-def test_the_hook_nudges_when_the_cli_or_the_reviewer_is_missing(tmp_path: Path) -> None:
-    out, _ = run_hook(tmp_path, {}, ())
+def test_the_hook_nudges_once_for_whatever_is_missing_first(tmp_path: Path) -> None:
+    out = run_hook(tmp_path, {}, ())
     assert "install.sh | sh" in out and out.count("\n") == 1
 
-    out, _ = run_hook(tmp_path, {}, ("deep-review",))
-    assert "deep-review setup" in out and "install.sh" not in out
+    out = run_hook(tmp_path, {}, ("deep-review",))
+    assert "deep-review setup" in out and "Reviewer" in out
+
+    out = run_hook(tmp_path, {}, ("deep-review", "opencode"))
+    assert "no Z.AI key" in out and "paste" in out and out.count("\n") == 1
