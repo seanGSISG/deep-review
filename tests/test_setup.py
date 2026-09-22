@@ -166,10 +166,9 @@ def test_a_reviewer_installed_outside_path_is_still_found_and_linked_for(
         target.chmod(0o755)
 
     monkeypatch.setattr(dr_setup, "install_from_script", into_home)
-    monkeypatch.setattr(dr_setup, "INSTALL_DIRS", (home / ".opencode" / "bin",))
 
     assert main(["setup", "--yes"]) == 0
 
     out = capsys.readouterr().out
-    assert "reviewer  installed  opencode 1.18.31; open a new shell" in out
+    assert "reviewer  installed opencode 1.18.31; open a new shell" in out
     assert (home / ".claude/skills/pre-pr-review").is_symlink()

@@ -14,9 +14,14 @@ from deep_review.skill import install
 # Seconds an installer script gets before it is given up on.
 INSTALL_TIMEOUT_SECONDS = 300.0
 
-# Where opencode's installer puts the binary. It edits the shell profile to add this to PATH, but
-# the shell running setup is older than that edit, so setup looks here as well as on PATH.
-INSTALL_DIRS = (Path.home() / ".opencode" / "bin",)
+
+def install_dirs() -> tuple[Path, ...]:
+    """
+    Where opencode's installer puts the binary. It edits the shell profile to add this to PATH,
+    but the shell running setup is older than that edit, so setup looks here as well as on PATH.
+    """
+    return (Path.home() / ".opencode" / "bin",)
+
 
 # Where a Claude Code user puts the key instead of the shell: the plugin asks for it at enable
 # time and keeps it in the keychain, and its SessionStart hook exports it for the agent's shell.
@@ -54,7 +59,7 @@ def which(binary: str) -> Path | None:
     """The binary on PATH, or in a directory an installer we ran puts things."""
     if (found := shutil.which(binary)) is not None:
         return Path(found)
-    return next((d / binary for d in INSTALL_DIRS if (d / binary).is_file()), None)
+    return next((d / binary for d in install_dirs() if (d / binary).is_file()), None)
 
 
 def _reviewer_row(reviewer: Reviewer, assume_yes: bool) -> Row:

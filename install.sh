@@ -8,7 +8,7 @@
 # DEEP_REVIEW_VERSION picks another tag or branch; the default is the release this script shipped in.
 set -eu
 
-VERSION="${DEEP_REVIEW_VERSION:-v0.2.0}"
+VERSION="${DEEP_REVIEW_VERSION:-v0.2.1}"
 say() { printf '\n$ %s\n' "$*"; }
 
 if ! command -v uv >/dev/null 2>&1; then
