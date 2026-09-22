@@ -1,6 +1,6 @@
 {
   "name": "pre-pr-review",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Pre-PR review of the current branch by a Reviewer of a different model family: the pre-pr-review skill drives the deep-review CLI, verifies its Findings in a subagent, and fixes what is real before the push",
   "author": {
     "name": "seanGSISG",

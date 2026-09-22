@@ -141,6 +141,14 @@ def test_an_empty_answer_or_no_terminal_leaves_the_key_missing(
     assert main(["setup"]) == 2
     assert "key       missing" in capsys.readouterr().out
 
+    def closed(prompt: str) -> str:
+        raise EOFError
+
+    monkeypatch.setattr(dr_setup.getpass, "getpass", closed)
+    monkeypatch.setattr(dr_setup, "ask_hidden", dr_setup.ask_hidden)
+    assert main(["setup"]) == 2, "Ctrl-D at the prompt is a skip, not a traceback"
+    capsys.readouterr()
+
     monkeypatch.setattr(dr_setup, "terminal_present", lambda: False)
     monkeypatch.setattr(
         dr_setup, "ask_hidden", lambda prompt: pytest.fail("no terminal, no prompt")

@@ -124,9 +124,13 @@ def ask(prompt: str) -> bool:
 def ask_hidden(prompt: str) -> str:
     """
     A secret typed on the terminal, not echoed. getpass opens /dev/tty itself, so this works
-    when stdin is a pipe, which it is under `curl ... | sh`.
+    when stdin is a pipe, which it is under `curl ... | sh`. A closed terminal, Ctrl-D, is a
+    skip, the same as an empty answer.
     """
-    return getpass.getpass(prompt)
+    try:
+        return getpass.getpass(prompt)
+    except EOFError:
+        return ""
 
 
 def terminal_present() -> bool:
