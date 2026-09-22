@@ -151,3 +151,25 @@ def test_a_foreign_skill_directory_is_reported_not_clobbered(
 
     assert "skill     missing" in capsys.readouterr().out
     assert not theirs.is_symlink()
+
+
+def test_a_reviewer_installed_outside_path_is_still_found_and_linked_for(
+    home: Path,
+    no_reviewer: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def into_home(reviewer: Reviewer) -> None:
+        target = home / ".opencode" / "bin" / reviewer.binary
+        target.parent.mkdir(parents=True)
+        target.write_text("#!/bin/sh\n", encoding="utf-8")
+        target.chmod(0o755)
+
+    monkeypatch.setattr(dr_setup, "install_from_script", into_home)
+    monkeypatch.setattr(dr_setup, "INSTALL_DIRS", (home / ".opencode" / "bin",))
+
+    assert main(["setup", "--yes"]) == 0
+
+    out = capsys.readouterr().out
+    assert "reviewer  installed  opencode 1.18.31; open a new shell" in out
+    assert (home / ".claude/skills/pre-pr-review").is_symlink()

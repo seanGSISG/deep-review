@@ -14,6 +14,10 @@ from deep_review.skill import install
 # Seconds an installer script gets before it is given up on.
 INSTALL_TIMEOUT_SECONDS = 300.0
 
+# Where opencode's installer puts the binary. It edits the shell profile to add this to PATH, but
+# the shell running setup is older than that edit, so setup looks here as well as on PATH.
+INSTALL_DIRS = (Path.home() / ".opencode" / "bin",)
+
 # Where a Claude Code user puts the key instead of the shell: the plugin asks for it at enable
 # time and keeps it in the keychain, and its SessionStart hook exports it for the agent's shell.
 PLUGIN_KEY_HINT = (
@@ -46,8 +50,15 @@ def ready(rows: list[Row]) -> bool:
     return all(row.status != "missing" for row in rows)
 
 
+def which(binary: str) -> Path | None:
+    """The binary on PATH, or in a directory an installer we ran puts things."""
+    if (found := shutil.which(binary)) is not None:
+        return Path(found)
+    return next((d / binary for d in INSTALL_DIRS if (d / binary).is_file()), None)
+
+
 def _reviewer_row(reviewer: Reviewer, assume_yes: bool) -> Row:
-    if (found := shutil.which(reviewer.binary)) is not None:
+    if (found := which(reviewer.binary)) is not None:
         return Row("reviewer", "ok", f"{reviewer.binary} at {found}")
     if reviewer.install_script is None:
         return Row("reviewer", "missing", f"{reviewer.binary}: run `{reviewer.install_hint}`")
@@ -57,6 +68,8 @@ def _reviewer_row(reviewer: Reviewer, assume_yes: bool) -> Row:
     if not assume_yes and not ask(f"{reviewer.binary} is not installed. Run `{command}`?"):
         return Row("reviewer", "missing", f"{reviewer.binary}: run `{command}`")
     install_from_script(reviewer)
+    if which(reviewer.binary) is None:
+        raise UsageError(f"the {reviewer.binary} installer finished but left no binary to find")
     if shutil.which(reviewer.binary) is None:
         return Row(
             "reviewer",
@@ -81,9 +94,7 @@ def _skill_row() -> Row:
     Link the Skill for the coding agents present on this machine. Claude Code gets it from the
     plugin, so opencode is what earns the ~/.claude/skills link, and pi its own tree.
     """
-    targets = [
-        target for target, binary in (("claude", "opencode"), ("pi", "pi")) if shutil.which(binary)
-    ]
+    targets = [target for target, binary in (("claude", "opencode"), ("pi", "pi")) if which(binary)]
     if not targets:
         return Row(
             "skill", "ok", "Claude Code loads it from the plugin; no opencode or pi to link for"
