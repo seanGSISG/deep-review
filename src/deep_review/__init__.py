@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 
 class UsageError(Exception):

@@ -9,7 +9,7 @@ from deep_review.git import build_diff, repo_root, resolve_base
 from deep_review.local import local_description
 from deep_review.render import LABEL_WIDTH, render
 from deep_review.report import SEVERITIES, Report, Severity, serialise
-from deep_review.reviewer import DEFAULT_REVIEWER, REVIEWERS, preflight, resolve_model
+from deep_review.reviewer import DEFAULT_EFFORT, DEFAULT_MODEL, preflight
 from deep_review.run import RunOptions, execute
 from deep_review.setup import ready, setup
 from deep_review.signal import STEP_TIMEOUT_SECONDS
@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "install-skill":
             return _install_skill(args)
         if args.command == "setup":
-            return _setup(args)
+            return _setup()
         return _review(args)
     except UsageError as error:
         print(f"deep-review: {error}", file=sys.stderr)
@@ -59,23 +59,17 @@ def _parser() -> argparse.ArgumentParser:
         "instead of origin/main, main or master",
     )
     review.add_argument(
-        "--agent",
-        choices=sorted(REVIEWERS),
-        default=DEFAULT_REVIEWER,
-        help="which Reviewer to run (default: %(default)s)",
+        "--model",
+        default=DEFAULT_MODEL,
+        metavar="ID",
+        help="the Codex model the Reviewer runs (default: %(default)s)",
     )
     review.add_argument(
-        "--model", metavar="ID", help="model for the Reviewer; without a slash, its provider's"
-    )
-    # Each Reviewer starts at its own reasoning level, so the help text is built from the table
-    # rather than restating it here and letting the two drift.
-    variants = ", ".join(
-        f"{reviewer.name} {reviewer.default_variant or 'unset'}" for reviewer in REVIEWERS.values()
-    )
-    review.add_argument(
-        "--variant",
+        "--effort",
+        default=DEFAULT_EFFORT,
         metavar="LEVEL",
-        help=f"reasoning level, passed verbatim to the Reviewer's own flag (default: {variants})",
+        help="its reasoning effort, passed to Codex as model_reasoning_effort "
+        "(default: %(default)s)",
     )
     review.add_argument(
         "--json", action="store_true", help="print the whole Report instead of the table"
@@ -123,24 +117,15 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="replace whatever is at the target path, if it is not already our symlink",
     )
-    setup_parser = commands.add_parser(
-        "setup", help="make this machine ready for a Run: the Reviewer, the key and the Skill"
-    )
-    setup_parser.add_argument(
-        "--agent",
-        choices=sorted(REVIEWERS),
-        default=DEFAULT_REVIEWER,
-        help="which Reviewer to set up (default: %(default)s)",
-    )
-    setup_parser.add_argument(
-        "--yes", action="store_true", help="install the Reviewer without asking first"
+    commands.add_parser(
+        "setup", help="check this machine is ready for a Run: Codex, its login and the Skill"
     )
     return parser
 
 
-def _setup(args: argparse.Namespace) -> int:
+def _setup() -> int:
     """Print the setup table; exit 2 while anything in it is still missing."""
-    rows = setup(REVIEWERS[args.agent], assume_yes=args.yes)
+    rows = setup()
     for row in rows:
         print(f"{row.name:<{LABEL_WIDTH}}{row.status:<{LABEL_WIDTH}}{row.detail}")
     return 0 if ready(rows) else 2
@@ -160,13 +145,11 @@ def _review(args: argparse.Namespace) -> int:
     troubles never reach the exit code — only --fail-on and usage errors do.
     """
     repo = repo_root(Path.cwd())
-    reviewer = REVIEWERS[args.agent]
-    preflight(reviewer)
+    preflight()
     base = resolve_base(repo, args.base)
     options = RunOptions(
-        reviewer=reviewer,
-        model=resolve_model(reviewer, args.model),
-        variant=args.variant or reviewer.default_variant,
+        model=args.model,
+        effort=args.effort,
         timeout_seconds=args.timeout * 60,
         signal_timeout_seconds=args.signal_timeout * 60,
         max_diff_lines=args.max_diff_lines,

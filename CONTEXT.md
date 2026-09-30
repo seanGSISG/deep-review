@@ -9,10 +9,10 @@ mergeability score.
 ### Actors
 
 **Reviewer**:
-The agent CLI (opencode or pi) plus the model it drives, executing the review prompt against a checkout.
-It runs with the CLI's own context loading switched off, so what it was told is the review prompt and
-not the instruction files the machine or the branch had lying around — bar one vector opencode gives
-no flag for, which #12 closes at our layer (ADR-0002).
+`codex exec` plus the model it drives (gpt-6.1-sol at medium effort), executing the review prompt against
+a checkout. It runs in a Codex home of ours with its own context loading switched off, so what it was
+told is the review prompt and not the instruction files the machine or the branch had lying around
+(ADR-0004).
 _Avoid_: agent, the model, the bot
 
 **Coding agent**:

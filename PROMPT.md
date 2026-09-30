@@ -1,5 +1,9 @@
 # Task: turn deep-review into a CLI and an agent skill
 
+> **Superseded in part (2026-09-30, ADR-0004).** The Reviewer is now `codex exec` on gpt-6.1-sol with
+> the developer's Codex login. Everything below about opencode, pi, GLM, the Z.AI key, `--agent`/`--variant`
+> and the Actions workflow describes the design this spec started from, not the tool as it is.
+
 You are starting with zero context. Read this whole file, then the files it names, before writing code.
 
 ## What deep-review is

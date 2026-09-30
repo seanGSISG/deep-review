@@ -39,12 +39,51 @@ class Finding(BaseModel):
     source: str = "agent"
 
 
+def _strict_object(properties: dict[str, object]) -> dict[str, object]:
+    """An object in the strict Structured Outputs subset: every field required, nothing extra."""
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
+
+
+# The shape of the Reviewer's final message, handed to `codex exec --output-schema`. Codex sends
+# it with strict validation, whose subset has no optional fields (a null union stands in for
+# one) and no numeric bounds, so the 0-5 score range and the non-empty fields are still checked
+# by `read_findings`. The prompt shows the same shape to the model.
+FINDINGS_SCHEMA = _strict_object(
+    {
+        "summary": {"type": "string"},
+        "score": {"type": "integer"},
+        "verified_by_execution": {"type": "array", "items": {"type": "string"}},
+        "findings": {
+            "type": "array",
+            "items": _strict_object(
+                {
+                    "file": {"type": "string"},
+                    "line": {"type": "integer"},
+                    "end_line": {"type": ["integer", "null"]},
+                    "severity": {"type": "string", "enum": list(SEVERITIES)},
+                    "title": {"type": "string"},
+                    "evidence": {"type": "string"},
+                    "failure_scenario": {"type": "string"},
+                    "fix": {"type": ["string", "null"]},
+                    "source": {"type": "string"},
+                }
+            ),
+        },
+    }
+)
+
+
 class RunStats(BaseModel):
     """What the Run cost: which Reviewer ran, for how long, and what it spent getting there."""
 
     agent: str
     model: str
-    variant: str | None = None
+    effort: str | None = None
     # None until the Reviewer has actually run, which a skipped Run never does.
     seconds: float | None = None
     input_tokens: int = 0

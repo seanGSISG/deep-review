@@ -1,5 +1,6 @@
-"""Invoking the Reviewer: the argv, the stdin, the time cap, and the preflight."""
+"""Invoking the Reviewer: the argv, the hermetic home, the time cap, and the preflight."""
 
+import json
 import os
 import time
 from pathlib import Path
@@ -8,39 +9,39 @@ import pytest
 
 from conftest import FakeReviewer
 from deep_review import UsageError
+from deep_review.report import FINDINGS_SCHEMA
 from deep_review.reviewer import (
+    DEFAULT_EFFORT,
+    DEFAULT_MODEL,
     EVENTS_NAME,
-    OPENCODE,
-    PI,
+    FINDINGS_NAME,
+    SCHEMA_NAME,
     STDERR_NAME,
-    Reviewer,
     invoke,
     preflight,
-    resolve_model,
     reviewer_home,
 )
 
-PROMPT = "Review the diff.\n\nWrite .deep-review/findings.json.\n"
+PROMPT = "Review the diff.\n\nAnswer with the Report.\n"
 
 
-def run(
-    repo: Path,
-    selected: Reviewer = OPENCODE,
-    timeout_seconds: float = 30.0,
-    variant: str | None = None,
-):
+def run(repo: Path, timeout_seconds: float = 30.0, effort: str = DEFAULT_EFFORT):
     """Invoke the Reviewer against a checkout whose Run directory already exists."""
     run_dir = repo / ".deep-review"
     run_dir.mkdir(exist_ok=True)
     return invoke(
-        selected,
         repo=repo,
         run_dir=run_dir,
         prompt=PROMPT,
-        model=selected.default_model,
-        variant=variant,
+        model=DEFAULT_MODEL,
+        effort=effort,
         timeout_seconds=timeout_seconds,
     )
+
+
+def _option(argv: list[str], flag: str) -> list[str]:
+    """Every value given for a repeatable flag, in order."""
+    return [argv[index + 1] for index, arg in enumerate(argv[:-1]) if arg == flag]
 
 
 def test_the_prompt_is_one_argument_and_stdin_is_dev_null(
@@ -50,115 +51,124 @@ def test_the_prompt_is_one_argument_and_stdin_is_dev_null(
 
     assert outcome.exit_code == 0
     assert not outcome.timed_out
+    assert reviewer.argv[0] == "exec"
     assert reviewer.argv[-1] == PROMPT
-    assert reviewer.argv[:-1] == [
-        "run",
-        "--format",
-        "json",
-        "--pure",
-        "--dangerously-skip-permissions",
-        "-m",
-        "zai-coding-plan/glm-5.3",
-    ]
     assert reviewer.stdin == "/dev/null"
     assert reviewer.cwd == repo
 
 
-def test_pi_sees_only_the_review_prompt_too(repo: Path, pi_reviewer: FakeReviewer) -> None:
-    outcome = run(repo, PI, variant="medium")
-
-    assert outcome.exit_code == 0
-    assert pi_reviewer.argv[-1] == PROMPT
-    assert pi_reviewer.argv[:-1] == [
-        "-p",
-        "--mode",
-        "json",
-        "--no-session",
-        "--no-extensions",
-        "--no-skills",
-        "--no-prompt-templates",
-        "--no-context-files",
-        "--no-approve",
-        "--model",
-        "zai/glm-5.3",
-        "--thinking",
-        "medium",
-    ]
-    assert pi_reviewer.stdin == "/dev/null"
-
-
-def test_the_reviewer_reads_its_settings_from_a_directory_of_ours(
-    repo: Path, reviewer: FakeReviewer, tmp_path: Path
-) -> None:
-    run(repo)
-
-    home = Path(reviewer.env["XDG_CONFIG_HOME"])
-    assert home == reviewer_home(OPENCODE)
-    assert home.is_relative_to(tmp_path), "the Run read the developer's own opencode config"
-    # Not a claim that it stays empty — the CLIs fill it with their own state, which is the point
-    # of giving them one. The claim is that a Run puts nothing in it: a Run that started seeding
-    # this directory would be handing the Reviewer context again, from a new direction.
-    assert list(home.glob("*")) == [], "a Run seeded the Reviewer's settings directory"
-    # What a Reviewer does need: a key, and enough of a shell for its bash tool to be worth having.
-    assert reviewer.env["ZHIPU_API_KEY"] == "test-key"
-    assert "PATH" in reviewer.env
-
-
-def test_the_context_opencode_would_load_on_its_own_is_turned_off(
+def test_the_report_comes_back_through_the_schema_and_the_last_message(
     repo: Path, reviewer: FakeReviewer
 ) -> None:
     run(repo)
 
-    # The project walk from cwd to the worktree root, and with it the .opencode directories whose
-    # presence starts an npm install inside the checkout under review.
-    assert reviewer.env["OPENCODE_DISABLE_PROJECT_CONFIG"] == "1"
-    # CLAUDE.md, from the checkout and from ~/.claude, and the skills under ~/.claude/skills and
-    # .claude/skills - one of which is the Skill that asks for a Run in the first place.
-    assert reviewer.env["OPENCODE_DISABLE_CLAUDE_CODE"] == "1"
+    run_dir = repo / ".deep-review"
+    assert _option(reviewer.argv, "--output-last-message") == [str(run_dir / FINDINGS_NAME)]
+    assert _option(reviewer.argv, "--output-schema") == [str(run_dir / SCHEMA_NAME)]
+    schema = json.loads((run_dir / SCHEMA_NAME).read_text(encoding="utf-8"))
+    assert schema == FINDINGS_SCHEMA
 
 
-def test_the_developers_own_variables_for_the_cli_do_not_reach_it(
+def test_the_findings_schema_is_in_the_strict_subset() -> None:
+    """Strict Structured Outputs rejects a schema with an optional field or an open object."""
+
+    def check(node: object) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object":
+                assert node["additionalProperties"] is False
+                assert sorted(node["required"]) == sorted(node["properties"])
+            for child in node.values():
+                check(child)
+
+    check(FINDINGS_SCHEMA)
+
+
+def test_the_context_codex_would_load_on_its_own_is_turned_off(
+    repo: Path, reviewer: FakeReviewer
+) -> None:
+    run(repo)
+
+    argv = reviewer.argv
+    for flag in ("--json", "--ephemeral", "--ignore-user-config", "--ignore-rules"):
+        assert flag in argv
+    configs = _option(argv, "--config")
+    assert "project_doc_max_bytes=0" in configs
+    assert "skills.include_instructions=false" in configs
+    assert "features.hooks=false" in configs
+
+
+def test_commands_run_sandboxed_with_the_user_cache_writable(
+    repo: Path, reviewer: FakeReviewer
+) -> None:
+    run(repo)
+
+    assert _option(reviewer.argv, "--sandbox") == ["workspace-write"]
+    roots = [c for c in _option(reviewer.argv, "--config") if c.startswith("sandbox_workspace")]
+    cache = Path(os.environ["XDG_CACHE_HOME"])
+    assert roots == [f"sandbox_workspace_write.writable_roots={json.dumps([str(cache)])}"]
+
+
+def test_the_model_and_effort_reach_codex(repo: Path, reviewer: FakeReviewer) -> None:
+    run(repo, effort="high")
+
+    assert _option(reviewer.argv, "--model") == [DEFAULT_MODEL]
+    assert 'model_reasoning_effort="high"' in _option(reviewer.argv, "--config")
+
+
+def test_the_reviewer_runs_in_a_fresh_home_holding_only_the_login(
+    repo: Path, reviewer: FakeReviewer
+) -> None:
+    run(repo)
+
+    home = Path(reviewer.env["CODEX_HOME"])
+    assert home != Path(os.environ["CODEX_HOME"])
+    assert reviewer.home_entries == ["auth.json"]
+    # A link, so a token refresh inside a Run lands in the developer's own file.
+    assert reviewer.auth_link == Path(os.environ["CODEX_HOME"]) / "auth.json"
+    assert not home.exists(), "a Run's home must not outlive it"
+
+
+def test_each_run_gets_its_own_home(repo: Path, reviewer: FakeReviewer) -> None:
+    run(repo)
+    first = reviewer.env["CODEX_HOME"]
+    run(repo)
+
+    assert reviewer.env["CODEX_HOME"] != first
+
+
+def test_homes_set_up_side_by_side_do_not_collide(reviewer: FakeReviewer) -> None:
+    with reviewer_home() as one, reviewer_home() as two:
+        assert one != two
+        assert (one / "auth.json").readlink() == (two / "auth.json").readlink()
+
+
+def test_a_relative_codex_home_still_links_to_the_real_login(
+    reviewer: FakeReviewer, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CODEX_HOME", "codex-home")
+
+    with reviewer_home() as home:
+        assert (home / "auth.json").resolve() == tmp_path / "codex-home" / "auth.json"
+        assert (home / "auth.json").is_file()
+
+
+def test_the_developers_own_codex_variables_do_not_reach_it(
     repo: Path, reviewer: FakeReviewer, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # A whole opencode config, inline, exported by the shell the CLI was started from.
-    monkeypatch.setenv("OPENCODE_CONFIG_CONTENT", '{"instructions": ["AGENTS.md"]}')
-    monkeypatch.setenv("OPENCODE_CONFIG_DIR", "/home/dev/.config/opencode")
-    monkeypatch.setenv("OPENCODE_DISABLE_CLAUDE_CODE", "0")
+    monkeypatch.setenv("CODEX_API_KEY", "sk-metered")
 
     run(repo)
 
-    assert "OPENCODE_CONFIG_CONTENT" not in reviewer.env
-    assert "OPENCODE_CONFIG_DIR" not in reviewer.env
-    assert reviewer.env["OPENCODE_DISABLE_CLAUDE_CODE"] == "1", "the shell overrode a Run's flag"
-
-
-def test_pi_reads_its_settings_from_a_directory_of_ours_too(
-    repo: Path, pi_reviewer: FakeReviewer, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("PI_CODING_AGENT_DIR", str(Path.home() / ".pi" / "agent"))
-
-    run(repo, PI, variant="medium")
-
-    # pi's settings, packages, extensions, skills, prompts and project trust all resolve from here.
-    home = Path(pi_reviewer.env["PI_CODING_AGENT_DIR"])
-    assert home == reviewer_home(PI)
-    assert home != reviewer_home(OPENCODE), "the two Reviewers shared one settings directory"
-    assert home.is_relative_to(tmp_path), "the Run read the developer's own pi agent directory"
-    assert list(home.glob("*")) == [], "a Run seeded the Reviewer's settings directory"
-    assert pi_reviewer.env["ZAI_API_KEY"] == "test-key"
-
-
-def test_a_variant_reaches_the_reviewers_own_flag(repo: Path, reviewer: FakeReviewer) -> None:
-    run(repo, variant="high")
-
-    assert reviewer.argv[-3:-1] == ["--variant", "high"]
+    assert "CODEX_API_KEY" not in reviewer.env
+    assert [name for name in reviewer.env if name.startswith("CODEX_")] == ["CODEX_HOME"]
 
 
 def test_stdout_and_stderr_land_beside_the_runs_inputs(repo: Path, reviewer: FakeReviewer) -> None:
     run(repo)
 
     run_dir = repo / ".deep-review"
-    assert "step-finish" in (run_dir / EVENTS_NAME).read_text(encoding="utf-8")
+    assert "turn.completed" in (run_dir / EVENTS_NAME).read_text(encoding="utf-8")
     assert (run_dir / STDERR_NAME).exists()
 
 
@@ -184,47 +194,48 @@ def test_the_time_cap_kills_the_reviewer_and_its_children(
     assert _is_gone(reviewer.child), "the Reviewer's own child outlived the time cap"
 
 
-def test_a_missing_reviewer_binary_is_a_usage_error_with_its_own_install_hint(
+def test_a_missing_codex_is_a_usage_error_with_the_install_hint(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setenv("PATH", str(tmp_path))
 
-    with pytest.raises(UsageError, match="deep-review setup"):
-        preflight(OPENCODE)
-    with pytest.raises(UsageError, match="npm install -g @earendil-works/pi-coding-agent"):
-        preflight(PI)
+    with pytest.raises(UsageError, match="npm install -g @openai/codex"):
+        preflight()
 
 
-def test_a_missing_key_is_a_usage_error(
-    monkeypatch: pytest.MonkeyPatch, reviewer: FakeReviewer
+def test_an_old_codex_is_a_usage_error_naming_both_versions(reviewer: FakeReviewer) -> None:
+    reviewer.will_report_version("codex-cli 0.156.1")
+
+    with pytest.raises(UsageError, match=r"0\.156\.1 is older than 0\.159\.2"):
+        preflight()
+
+
+def test_no_login_file_is_a_usage_error(
+    reviewer: FakeReviewer, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.delenv("ZHIPU_API_KEY")
-    monkeypatch.delenv("Z_AI_API_KEY", raising=False)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "never-logged-in"))
 
-    with pytest.raises(UsageError, match="Z_AI_API_KEY"):
-        preflight(OPENCODE)
-
-    monkeypatch.setenv("Z_AI_API_KEY", "fallback")
-    preflight(OPENCODE)
+    with pytest.raises(UsageError, match="codex login"):
+        preflight()
+    assert not reviewer.ran
 
 
-def test_a_missing_key_is_a_usage_error_for_pi_too(
-    monkeypatch: pytest.MonkeyPatch, pi_reviewer: FakeReviewer
-) -> None:
-    monkeypatch.delenv("ZAI_API_KEY")
-    monkeypatch.delenv("Z_AI_API_KEY", raising=False)
+def test_a_login_codex_rejects_is_a_usage_error(reviewer: FakeReviewer) -> None:
+    reviewer.will_fail_login()
 
-    with pytest.raises(UsageError, match="set ZAI_API_KEY or Z_AI_API_KEY"):
-        preflight(PI)
+    with pytest.raises(UsageError, match="login status` exited 1"):
+        preflight()
 
 
-def test_a_bare_model_gains_the_selected_reviewers_provider_prefix() -> None:
-    assert resolve_model(OPENCODE, None) == "zai-coding-plan/glm-5.3"
-    assert resolve_model(OPENCODE, "glm-5.3-flash") == "zai-coding-plan/glm-5.3-flash"
-    assert resolve_model(OPENCODE, "openrouter/z-ai/glm-5.3") == "openrouter/z-ai/glm-5.3"
-    assert resolve_model(PI, None) == "zai/glm-5.3"
-    assert resolve_model(PI, "glm-5.3-flash") == "zai/glm-5.3-flash"
-    assert resolve_model(PI, "openrouter/z-ai/glm-5.3") == "openrouter/z-ai/glm-5.3"
+def test_an_api_key_login_is_a_usage_error(reviewer: FakeReviewer) -> None:
+    reviewer.will_log_in_with("Logged in using an API key - sk-proj-***")
+
+    with pytest.raises(UsageError, match="not on a ChatGPT login"):
+        preflight()
+
+
+def test_a_ready_machine_passes_preflight(reviewer: FakeReviewer) -> None:
+    preflight()
 
 
 def _is_gone(pid: int) -> bool:
