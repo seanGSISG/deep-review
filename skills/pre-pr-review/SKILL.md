@@ -15,15 +15,25 @@ before the PR exists.
 Your job is the Round loop below: request a Run, have the Findings verified, fix what is real,
 and carry on with the push or PR the user asked for. The CLI does the work.
 
-The Reviewer is Codex (`gpt-6.1-sol` at medium effort) on the user's own Codex login. If the CLI
-is not on PATH, or its preflight refuses, tell the user what it said. The fixes are theirs to run in
-a terminal: `curl -fsSL https://raw.githubusercontent.com/seanGSISG/deep-review/main/install.sh | sh`
-for the CLI, `npm install -g @openai/codex` or `codex update` for Codex, and `codex login`, which
-opens a browser. Never run `codex login` yourself through a tool.
+Run the CLI exactly as
+
+```sh
+uvx --from git+https://github.com/seanGSISG/deep-review@v0.4.0 deep-review review
+```
+
+pinned to the release this Skill shipped with, so the Skill and the CLI cannot drift apart. Never
+use a `deep-review` from PATH instead: it may be an older release with a different Reviewer. The
+first Run fetches that release into uv's cache; later ones start at once.
+
+The Reviewer is Codex (`gpt-6.1-sol` at medium effort) on the user's own Codex login. If uv is
+missing, or the CLI's preflight refuses, tell the user what it said. The fixes are theirs to run in
+a terminal: `curl -LsSf https://astral.sh/uv/install.sh | sh` for uv, `npm install -g @openai/codex`
+or `codex update` for Codex, and `codex login`, which opens a browser. Never run `codex login`
+yourself through a tool.
 
 ## The Round loop
 
-1. **Run.** In the repo root, run `deep-review review`. A Run takes a few minutes, because the
+1. **Run.** In the repo root, run the command above. A Run takes a few minutes, because the
    Reviewer actually executes things; wait for it rather than assuming it hung. It reviews the
    change against the merge-base with `origin/main`, so pass `--base <ref>` when the branch comes
    off something else. Read the table it prints: one line per Finding, the count, and the path of
