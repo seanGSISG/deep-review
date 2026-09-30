@@ -61,16 +61,19 @@ def _tool(item: object, counted: set[str]) -> str | None:
     is named by its server and tool; the built-ins by their item type. An item id seen before is
     not counted again: a stable id is the stream's own word that it is the same call.
     """
-    if not isinstance(item, dict) or item.get("type") not in TOOL_ITEMS:
+    if not isinstance(item, dict):
+        return None
+    kind = _name(item.get("type"))
+    if kind not in TOOL_ITEMS:
         return None
     identity = _name(item.get("id"))
     if identity is not None:
         if identity in counted:
             return None
         counted.add(identity)
-    if item["type"] == "mcp_tool_call":
+    if kind == "mcp_tool_call":
         return f"{item.get('server')}.{item.get('tool')}"
-    return str(item["type"])
+    return kind
 
 
 def _tokens(reported: object) -> Tokens:

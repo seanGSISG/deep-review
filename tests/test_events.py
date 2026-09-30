@@ -122,6 +122,19 @@ def test_a_stream_that_is_missing_or_nonsense_leaves_the_counts_at_zero(tmp_path
         assert (parsed.input_tokens, parsed.output_tokens, parsed.tool_calls) == (0, 0, {})
 
 
+def test_an_item_type_that_is_not_a_string_is_skipped_not_raised(tmp_path: Path) -> None:
+    parsed = stats(
+        stream(
+            tmp_path,
+            {"type": "item.completed", "item": {"id": "item_1", "type": []}},
+            {"type": "item.completed", "item": {"id": "item_2", "type": {"k": 1}}},
+            item("item_3", "command_execution"),
+        )
+    )
+
+    assert parsed.tool_calls == {"command_execution": 1}
+
+
 def test_counts_the_stream_did_not_report_as_numbers_are_ignored(tmp_path: Path) -> None:
     parsed = stats(
         stream(tmp_path, turn(input_tokens="12", cached_input_tokens=True, output_tokens=None))
