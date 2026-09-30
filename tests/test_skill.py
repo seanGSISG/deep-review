@@ -156,21 +156,34 @@ def test_the_hook_says_nothing_when_the_machine_is_ready(tmp_path: Path) -> None
     auth = tmp_path / ".codex" / "auth.json"
     auth.parent.mkdir()
     auth.write_text("{}\n", encoding="utf-8")
-    assert run_hook(tmp_path, {}, ("deep-review", "codex")) == ""
+    assert run_hook(tmp_path, {}, ("uvx", "codex")) == ""
 
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     (elsewhere / "auth.json").write_text("{}\n", encoding="utf-8")
     auth.unlink()
-    assert run_hook(tmp_path, {"CODEX_HOME": str(elsewhere)}, ("deep-review", "codex")) == ""
+    assert run_hook(tmp_path, {"CODEX_HOME": str(elsewhere)}, ("uvx", "codex")) == ""
 
 
 def test_the_hook_nudges_once_for_whatever_is_missing_first(tmp_path: Path) -> None:
     out = run_hook(tmp_path, {}, ())
-    assert "install.sh | sh" in out and out.count("\n") == 1
+    assert "astral.sh/uv/install.sh" in out and out.count("\n") == 1
 
-    out = run_hook(tmp_path, {}, ("deep-review",))
+    out = run_hook(tmp_path, {}, ("uvx",))
     assert "npm install -g @openai/codex" in out and "Reviewer" in out
 
-    out = run_hook(tmp_path, {}, ("deep-review", "codex"))
+    out = run_hook(tmp_path, {}, ("uvx", "codex"))
     assert "codex login" in out and out.count("\n") == 1
+
+
+def test_the_skill_install_script_and_plugin_pin_this_release() -> None:
+    """
+    The Skill runs the CLI through uvx at a tag rather than whatever `deep-review` is on PATH, so
+    the plugin and the CLI move together. A release that bumps __version__ must bump the pin too.
+    """
+    skill = (skill_dir() / "SKILL.md").read_text(encoding="utf-8")
+    assert f"uvx --from git+https://github.com/seanGSISG/deep-review@v{__version__} " in skill
+    install = (ROOT / "install.sh").read_text(encoding="utf-8")
+    assert f'VERSION="${{DEEP_REVIEW_VERSION:-v{__version__}}}"' in install
+    manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    assert manifest["version"] == __version__

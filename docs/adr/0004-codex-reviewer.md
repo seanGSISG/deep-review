@@ -64,6 +64,9 @@ the Reviewer to record that rather than work around it.
   or its own `codex update` and its login needs a browser.
 - `--agent` and `--variant` are gone; `--model` and `--effort` go straight to Codex. A Run's
   effort is what Codex was sent, closing the inert-variant half of #13.
+- The Skill runs the CLI through `uvx --from git+…@v<release>`, never a `deep-review` on PATH, so
+  the plugin's release decides the CLI's (#26, proposal 5). A release bumps that pin with
+  `__version__`, `install.sh` and `plugin.json`; `test_skill.py` fails if any of them disagree.
 - The GitHub Actions workflow, its caller template and `scripts/run_local.sh` are retired: they
   ran opencode and pi on a Z.AI secret, and a hosted runner has no Codex login. argus covers the
   PR; `scripts/post_review.py` stays for #7.

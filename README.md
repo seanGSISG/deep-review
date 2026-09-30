@@ -36,12 +36,16 @@ ChatGPT login in Codex's default file credential store (`codex login`). There is
 Run uses that login, and its token refreshes land in your own `~/.codex/auth.json`. Run
 `deep-review setup` any time to see what is missing.
 
-**Claude Code** additionally gets the Skill as a plugin, which also says at session start when the
-CLI, Codex or its login is missing:
+**Claude Code** gets the Skill as a plugin, which also says at session start when uv, Codex or its
+login is missing:
 ```
 /plugin marketplace add seanGSISG/claude-depot
 /plugin install pre-pr-review@claude-depot
 ```
+The Skill runs the CLI as `uvx --from git+https://github.com/seanGSISG/deep-review@v<release>
+deep-review`, pinned to the release it shipped with, so updating the plugin updates the CLI and a
+`deep-review` on PATH is never the one the Skill runs. A plugin user needs only uv and Codex; the
+install script above is for running the CLI by hand and for linking the Skill into opencode or pi.
 
 ## Use it
 ```sh
