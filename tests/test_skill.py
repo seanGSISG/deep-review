@@ -129,7 +129,7 @@ HOOK = ROOT / "hooks" / "session-start.sh"
 
 def test_the_plugin_ships_the_session_start_hook() -> None:
     manifest = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-    assert "userConfig" not in manifest, "the key is entered on a terminal by setup, not here"
+    assert "userConfig" not in manifest, "the Reviewer uses the Codex login; there is no key"
     hooks = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
     assert "session-start.sh" in json.dumps(hooks["hooks"]["SessionStart"])
     assert HOOK.stat().st_mode & 0o111, "the hook must be executable"
@@ -153,12 +153,16 @@ def run_hook(tmp_path: Path, env: dict[str, str], path_with: tuple[str, ...]) ->
 
 
 def test_the_hook_says_nothing_when_the_machine_is_ready(tmp_path: Path) -> None:
-    assert run_hook(tmp_path, {"Z_AI_API_KEY": "k"}, ("deep-review", "opencode")) == ""
+    auth = tmp_path / ".codex" / "auth.json"
+    auth.parent.mkdir()
+    auth.write_text("{}\n", encoding="utf-8")
+    assert run_hook(tmp_path, {}, ("deep-review", "codex")) == ""
 
-    key_file = tmp_path / ".config" / "deep-review" / "zai-api-key"
-    key_file.parent.mkdir(parents=True)
-    key_file.write_text("k\n", encoding="utf-8")
-    assert run_hook(tmp_path, {}, ("deep-review", "opencode")) == ""
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "auth.json").write_text("{}\n", encoding="utf-8")
+    auth.unlink()
+    assert run_hook(tmp_path, {"CODEX_HOME": str(elsewhere)}, ("deep-review", "codex")) == ""
 
 
 def test_the_hook_nudges_once_for_whatever_is_missing_first(tmp_path: Path) -> None:
@@ -166,7 +170,7 @@ def test_the_hook_nudges_once_for_whatever_is_missing_first(tmp_path: Path) -> N
     assert "install.sh | sh" in out and out.count("\n") == 1
 
     out = run_hook(tmp_path, {}, ("deep-review",))
-    assert "deep-review setup" in out and "Reviewer" in out
+    assert "npm install -g @openai/codex" in out and "Reviewer" in out
 
-    out = run_hook(tmp_path, {}, ("deep-review", "opencode"))
-    assert "no Z.AI key" in out and "paste" in out and out.count("\n") == 1
+    out = run_hook(tmp_path, {}, ("deep-review", "codex"))
+    assert "codex login" in out and out.count("\n") == 1

@@ -68,8 +68,8 @@ def _counts(findings: list[Finding]) -> str:
 def _reviewer(stats: RunStats) -> str:
     """Which Reviewer ran, on what model, and how long it took."""
     line = f"{stats.agent} {stats.model}"
-    if stats.variant:
-        line += f" ({stats.variant})"
+    if stats.effort:
+        line += f" ({stats.effort})"
     return line if stats.seconds is None else f"{line} in {stats.seconds:g}s"
 
 

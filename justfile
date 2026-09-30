@@ -7,8 +7,8 @@ default:
 test:
     uv run pytest
 
-# Run only the live test: one real Run per Reviewer against a planted bug. It spends Z.AI
-# credits, which is why `just test` leaves it out. Narrow it to one: `just test-live --reviewer pi`.
+# Run only the live test: one real Run against a planted bug. It spends the Codex login's usage,
+# which is why `just test` leaves it out.
 test-live *ARGS:
     uv run pytest -m integration {{ARGS}}
 

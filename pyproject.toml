@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "deep-review"
-version = "0.3.1"
+version = "0.4.0"
 description = "A second-opinion pull-request reviewer: a Reviewer of a different model family proves defects by execution and quotation"
 readme = "README.md"
 license = "MIT"
@@ -43,6 +43,6 @@ include = ["src", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# The live Run costs Z.AI credits, so `just test` leaves it out and `just test-live` asks for it.
+# The live Run spends the Codex login's usage, so `just test` leaves it out and `just test-live` asks for it.
 addopts = "-q -m 'not integration'"
-markers = ["integration: runs the real Reviewer against a planted bug and spends Z.AI credits"]
+markers = ["integration: runs the real Reviewer against a planted bug and spends Codex usage"]

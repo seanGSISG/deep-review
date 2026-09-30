@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, amended by ADR-0004 (no key; setup installs nothing)
 date: 2026-09-22
 ---
 

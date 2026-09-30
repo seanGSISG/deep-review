@@ -1,6 +1,5 @@
-"""One real Run per Reviewer against a planted bug. It spends Z.AI credits, so it is opt in."""
+"""One real Run against a planted bug. It spends the Codex login's usage, so it is opt in."""
 
-import os
 import shutil
 from pathlib import Path
 
@@ -9,22 +8,11 @@ import pytest
 from conftest import commit, git, write
 from deep_review.cli import main
 from deep_review.report import Report
-from deep_review.reviewer import REVIEWERS
+from deep_review.reviewer import BINARY, login_problem
 
 pytestmark = [
     pytest.mark.integration,
-    pytest.mark.skipif(not os.environ.get("Z_AI_API_KEY"), reason="no Z_AI_API_KEY in the env"),
-]
-
-# One Run per selectable Reviewer, each skipped where its own binary is not installed.
-SELECTABLE = [
-    pytest.param(
-        name,
-        marks=pytest.mark.skipif(
-            shutil.which(reviewer.binary) is None, reason=f"{reviewer.binary} is not installed"
-        ),
-    )
-    for name, reviewer in REVIEWERS.items()
+    pytest.mark.skipif(shutil.which(BINARY) is None, reason=f"{BINARY} is not installed"),
 ]
 
 GUARDED = """def average(values: list[float]) -> float:
@@ -39,16 +27,11 @@ UNGUARDED = """def average(values: list[float]) -> float:
 """
 
 
-@pytest.mark.parametrize("selected", SELECTABLE)
 def test_a_real_run_produces_a_valid_report(
-    selected: str,
-    repo: Path,
-    request: pytest.FixtureRequest,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    if (only := request.config.getoption("--reviewer")) and only != selected:
-        pytest.skip(f"--reviewer {only}")
+    if (problem := login_problem()) is not None:
+        pytest.skip(problem)
     write(repo, "stats.py", GUARDED)
     commit(repo, "feat: average a list")
     git(repo, "update-ref", "refs/remotes/origin/main", git(repo, "rev-parse", "HEAD"))
@@ -57,16 +40,17 @@ def test_a_real_run_produces_a_valid_report(
     commit(repo, "refactor: drop the empty-list guard")
     monkeypatch.chdir(repo)
 
-    assert main(["review", "--agent", selected, "--timeout", "6"]) == 0
+    assert main(["review", "--timeout", "10"]) == 0
 
     report = Report.model_validate_json(
         (repo / ".deep-review" / "findings.json").read_text(encoding="utf-8")
     )
     assert report.status == "ok", report.notice
     assert report.stats.seconds is not None
-    assert report.stats.agent == selected
+    assert report.stats.agent == BINARY
     # A Run whose stream went unread would report a Report and no numbers, which is the one way
-    # this can pass while the Reviewer's own parser is reading the wrong shape.
+    # this can pass while the parser is reading the wrong shape.
     assert report.stats.input_tokens > 0, "the Run reported no tokens"
+    assert any(found.file == "stats.py" for found in report.findings), report.summary
     with capsys.disabled():
-        print(f"\n{selected}: {report.stats.seconds:g}s, {len(report.findings)} findings")
+        print(f"\ncodex: {report.stats.seconds:g}s, {len(report.findings)} findings")

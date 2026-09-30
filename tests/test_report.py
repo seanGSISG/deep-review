@@ -5,7 +5,7 @@ from pathlib import Path
 
 from deep_review.report import Report, RunStats, read_findings, serialise
 
-STATS = RunStats(agent="opencode", model="zai-coding-plan/glm-5.3")
+STATS = RunStats(agent="codex", model="gpt-6.1-sol", effort="medium")
 
 FINDING = {
     "file": "src/shipments.py",

@@ -74,13 +74,13 @@ def test_a_complete_run_prints_the_findings_the_summary_and_what_it_cost(
     assert "Two data-loss paths on the main flow." in out
     assert "findings  2 (P1 1, P2 1)" in out
     assert "score     2/5 (advisory)" in out
-    assert "reviewer  opencode zai-coding-plan/glm-5.3 in " in out
+    assert "reviewer  codex gpt-6.1-sol (medium) in " in out
     assert "tokens    1,200 fresh, 9,000 cached, 80 output, 40 reasoning" in out
-    assert "tools     bash 1" in out
+    assert "tools     command_execution 1" in out
     assert "report    .deep-review/findings.json" in out
     assert report_on_disk(branch)["status"] == "ok"
     assert report_on_disk(branch)["stats"]["cache_read_tokens"] == 9000
-    assert report_on_disk(branch)["stats"]["tool_calls"] == {"bash": 1}
+    assert report_on_disk(branch)["stats"]["tool_calls"] == {"command_execution": 1}
 
 
 def test_the_reviewer_reads_the_runs_inputs_in_the_checkout(
@@ -91,7 +91,7 @@ def test_the_reviewer_reads_the_runs_inputs_in_the_checkout(
     main(["review"])
 
     assert reviewer.cwd == branch
-    assert "findings.json" in reviewer.argv[-1]  # the prompt, as one argument
+    assert ".deep-review/diff.patch" in reviewer.argv[-1]  # the prompt, as one argument
     assert (branch / ".deep-review" / "diff.patch").read_text(encoding="utf-8")
     # What each tool wrote is tests/test_signal.py's business; that a Run collects at all is this.
     assert (branch / ".deep-review" / "signal").is_dir()
@@ -262,59 +262,16 @@ def test_review_takes_an_explicit_base(branch: Path, reviewer: FakeReviewer) -> 
     assert "return order.id" in written
 
 
-def test_the_model_and_variant_reach_the_reviewer(branch: Path, reviewer: FakeReviewer) -> None:
+def test_the_model_and_effort_reach_the_reviewer(branch: Path, reviewer: FakeReviewer) -> None:
     reviewer.will_write(FINDINGS)
 
-    main(["review", "--model", "glm-5.3-flash", "--variant", "high"])
+    main(["review", "--model", "gpt-6-luna", "--effort", "high"])
 
-    assert reviewer.argv[-4:-1] == ["zai-coding-plan/glm-5.3-flash", "--variant", "high"]
-
-
-def test_pi_runs_on_its_own_model_and_variant_defaults(
-    branch: Path, pi_reviewer: FakeReviewer
-) -> None:
-    pi_reviewer.will_write(FINDINGS)
-
-    assert main(["review", "--agent", "pi"]) == 0
-
-    assert pi_reviewer.argv[-5:-1] == ["--model", "zai/glm-5.3", "--thinking", "medium"]
+    argv = reviewer.argv
+    assert argv[argv.index("--model") + 1] == "gpt-6-luna"
+    assert 'model_reasoning_effort="high"' in argv
     stats = report_on_disk(branch)["stats"]
-    assert (stats["agent"], stats["model"], stats["variant"]) == ("pi", "zai/glm-5.3", "medium")
-
-
-def test_pi_reports_what_its_own_event_stream_says_it_spent(
-    branch: Path, pi_reviewer: FakeReviewer, capsys: pytest.CaptureFixture[str]
-) -> None:
-    pi_reviewer.will_write(FINDINGS)
-
-    main(["review", "--agent", "pi"])
-
-    # The stand-in prints pi's 120 of output with its 40 of reasoning still inside it.
-    stats = report_on_disk(branch)["stats"]
-    assert (stats["input_tokens"], stats["cache_read_tokens"]) == (1200, 9000)
-    assert (stats["output_tokens"], stats["reasoning_tokens"]) == (80, 40)
-    assert stats["tool_calls"] == {"bash": 1}
-    assert "1,200 fresh, 9,000 cached, 80 output, 40 reasoning" in capsys.readouterr().out
-
-
-def test_a_bare_model_gains_pis_prefix_under_pi(branch: Path, pi_reviewer: FakeReviewer) -> None:
-    pi_reviewer.will_write(FINDINGS)
-
-    main(["review", "--agent", "pi", "--model", "glm-5.3-flash", "--variant", "high"])
-
-    assert pi_reviewer.argv[-5:-1] == ["--model", "zai/glm-5.3-flash", "--thinking", "high"]
-
-
-def test_a_missing_pi_binary_exits_2_with_pis_own_install_hint(
-    branch: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    monkeypatch.setenv("PATH", str(only_git(branch)))
-
-    assert main(["review", "--agent", "pi"]) == 2
-
-    assert (
-        "install it with `npm install -g @earendil-works/pi-coding-agent" in capsys.readouterr().err
-    )
+    assert (stats["agent"], stats["model"], stats["effort"]) == ("codex", "gpt-6-luna", "high")
 
 
 def test_a_missing_reviewer_binary_exits_2_before_the_run(
@@ -324,15 +281,20 @@ def test_a_missing_reviewer_binary_exits_2_before_the_run(
 
     assert main(["review"]) == 2
 
-    assert "install it with `deep-review setup`" in capsys.readouterr().err
+    assert "install it with npm install -g @openai/codex" in capsys.readouterr().err
     assert not (branch / ".deep-review").exists()
 
 
-def test_an_unknown_reviewer_is_a_usage_error(branch: Path, reviewer: FakeReviewer) -> None:
-    with pytest.raises(SystemExit) as exit_:
-        main(["review", "--agent", "claude"])
+def test_a_machine_not_logged_in_exits_2_before_the_run(
+    branch: Path, reviewer: FakeReviewer, capsys: pytest.CaptureFixture[str]
+) -> None:
+    reviewer.will_fail_login()
 
-    assert exit_.value.code == 2
+    assert main(["review"]) == 2
+
+    assert "codex login" in capsys.readouterr().err
+    assert not reviewer.ran
+    assert not (branch / ".deep-review").exists()
 
 
 def test_review_outside_a_git_checkout_exits_2(

@@ -1,26 +1,18 @@
-"""Run stats parsed out of each Reviewer's event stream, against real captures of both."""
+"""Run stats parsed out of the Reviewer's `codex exec --json` stream, against a real capture."""
 
 import json
 from pathlib import Path
 
-from deep_review.events import opencode_stats, pi_stats
+from deep_review.events import codex_stats
 from deep_review.report import RunStats
 
-FIXTURES = Path(__file__).parent / "fixtures"
-
-# Excerpts of real streams, captured from the Runs in #2 and #5 with tool output stripped.
-OPENCODE_CAPTURE = FIXTURES / "opencode-events.jsonl"
-PI_CAPTURE = FIXTURES / "pi-events.jsonl"
+# A real stream: the live test's Run against the planted divide-by-zero, paths and owners scrubbed.
+CAPTURE = Path(__file__).parent / "fixtures" / "codex-events.jsonl"
 
 
-def opencode(path: Path) -> RunStats:
-    """The stats a Run would report, off the opencode stream at `path`."""
-    return opencode_stats(path, RunStats(agent="opencode", model="zai-coding-plan/glm-5.3"))
-
-
-def pi(path: Path) -> RunStats:
-    """The stats a Run would report, off the pi stream at `path`."""
-    return pi_stats(path, RunStats(agent="pi", model="zai/glm-5.3", variant="medium"))
+def stats(path: Path) -> RunStats:
+    """The stats a Run would report, off the stream at `path`."""
+    return codex_stats(path, RunStats(agent="codex", model="gpt-6.1-sol", effort="medium"))
 
 
 def stream(tmp_path: Path, *events: object) -> Path:
@@ -30,164 +22,109 @@ def stream(tmp_path: Path, *events: object) -> Path:
     return path
 
 
-def step(identity: str, tokens: object) -> dict[str, object]:
-    """A step-finish event, spelled as opencode spells it: underscore outside, hyphen inside."""
-    part = {"id": identity, "type": "step-finish", "tokens": tokens}
-    return {"type": "step_finish", "part": part}
+def turn(**usage: object) -> dict[str, object]:
+    """A turn.completed event, which is where codex reports what a turn cost."""
+    return {"type": "turn.completed", "usage": usage}
 
 
-def call(identity: str, tool: str) -> dict[str, object]:
-    """One tool call, in the terminal state opencode prints tool parts in."""
-    part = {"callID": identity, "type": "tool", "tool": tool, "state": {"status": "completed"}}
-    return {"type": "tool_use", "part": part}
+def item(identity: str, kind: str, **fields: object) -> dict[str, object]:
+    """An item.completed event of this item type."""
+    return {"type": "item.completed", "item": {"id": identity, "type": kind, **fields}}
 
 
-def message(usage: object, role: str = "assistant") -> dict[str, object]:
-    """A message_end event, which is where pi reports what a message cost."""
-    return {"type": "message_end", "message": {"role": role, "usage": usage}}
+def test_a_real_stream_gives_its_token_and_tool_counts() -> None:
+    parsed = stats(CAPTURE)
+
+    # 63,388 input of which 46,336 cached; 789 output of which 41 reasoning.
+    assert parsed.input_tokens == 17_052
+    assert parsed.cache_read_tokens == 46_336
+    assert parsed.output_tokens == 748
+    assert parsed.reasoning_tokens == 41
+    assert parsed.tool_calls == {"command_execution": 3}
 
 
-def execution(identity: str, tool: str) -> dict[str, object]:
-    """A tool_execution_start event, which is where pi names a tool call."""
-    return {"type": "tool_execution_start", "toolCallId": identity, "toolName": tool, "args": {}}
+def test_the_reviewer_and_its_effort_survive_the_parse() -> None:
+    parsed = stats(CAPTURE)
+
+    assert (parsed.agent, parsed.model, parsed.effort) == ("codex", "gpt-6.1-sol", "medium")
 
 
-def test_a_real_opencode_stream_gives_its_token_and_tool_counts() -> None:
-    stats = opencode(OPENCODE_CAPTURE)
+def test_cached_input_and_reasoning_are_not_counted_twice(tmp_path: Path) -> None:
+    parsed = stats(
+        stream(
+            tmp_path,
+            turn(
+                input_tokens=1_000,
+                cached_input_tokens=800,
+                output_tokens=100,
+                reasoning_output_tokens=30,
+            ),
+        )
+    )
 
-    # Five steps, and the stream's own `tokens.total` is input + output + reasoning + cache.read,
-    # which is what makes `input` the fresh half of the input rather than all of it.
-    assert stats.input_tokens == 23536
-    assert stats.output_tokens == 532
-    assert stats.reasoning_tokens == 1123
-    assert stats.cache_read_tokens == 303040
-    assert stats.tool_calls == {"bash": 3, "read": 1}
-
-
-def test_the_reviewer_and_the_time_it_took_survive_the_parse() -> None:
-    stats = opencode_stats(OPENCODE_CAPTURE, RunStats(agent="opencode", model="glm", seconds=42.1))
-
-    assert (stats.agent, stats.model, stats.seconds) == ("opencode", "glm", 42.1)
-
-
-def test_tools_are_counted_most_used_first(tmp_path: Path) -> None:
-    calls = [call(f"c{n}", name) for n, name in enumerate(["read", "bash", "bash"])]
-
-    assert list(opencode(stream(tmp_path, *calls)).tool_calls) == ["bash", "read"]
+    assert (parsed.input_tokens, parsed.cache_read_tokens) == (200, 800)
+    assert (parsed.output_tokens, parsed.reasoning_tokens) == (70, 30)
 
 
-def test_a_part_that_arrives_twice_is_counted_once(tmp_path: Path) -> None:
-    tokens = {"input": 10, "output": 1, "reasoning": 0, "cache": {"read": 5}}
-    bash = call("call_1", "bash")
+def test_every_completed_turn_is_summed(tmp_path: Path) -> None:
+    usage = {"input_tokens": 10, "cached_input_tokens": 0, "output_tokens": 5}
 
-    stats = opencode(stream(tmp_path, step("prt_1", tokens), step("prt_1", tokens), bash, bash))
+    parsed = stats(stream(tmp_path, turn(**usage), turn(**usage)))
 
-    assert (stats.input_tokens, stats.cache_read_tokens) == (10, 5)
-    assert stats.tool_calls == {"bash": 1}
+    assert (parsed.input_tokens, parsed.output_tokens) == (20, 10)
 
 
-def test_a_stream_cut_mid_line_keeps_the_steps_it_finished(tmp_path: Path) -> None:
-    path = stream(tmp_path, step("prt_1", {"input": 900, "output": 20}))
-    path.write_text(path.read_text(encoding="utf-8") + '{"type":"step_fin', encoding="utf-8")
+def test_tools_are_counted_by_kind_most_used_first(tmp_path: Path) -> None:
+    parsed = stats(
+        stream(
+            tmp_path,
+            item("item_1", "file_change"),
+            item("item_2", "command_execution"),
+            item("item_3", "command_execution"),
+            item("item_4", "mcp_tool_call", server="docs", tool="search"),
+            item("item_5", "agent_message", text="not a tool"),
+            item("item_6", "reasoning", text="nor this"),
+        )
+    )
 
-    stats = opencode(path)
+    assert parsed.tool_calls == {"command_execution": 2, "file_change": 1, "docs.search": 1}
+    assert list(parsed.tool_calls)[0] == "command_execution"
 
-    assert (stats.input_tokens, stats.output_tokens) == (900, 20)
+
+def test_an_item_that_arrives_twice_is_counted_once(tmp_path: Path) -> None:
+    parsed = stats(
+        stream(tmp_path, item("item_1", "command_execution"), item("item_1", "command_execution"))
+    )
+
+    assert parsed.tool_calls == {"command_execution": 1}
+
+
+def test_started_items_are_not_counted_until_they_complete(tmp_path: Path) -> None:
+    started = {"type": "item.started", "item": {"id": "item_1", "type": "command_execution"}}
+
+    assert stats(stream(tmp_path, started)).tool_calls == {}
+
+
+def test_a_stream_cut_mid_line_keeps_the_turns_it_finished(tmp_path: Path) -> None:
+    path = stream(tmp_path, turn(input_tokens=10, cached_input_tokens=0, output_tokens=5))
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write('{"type": "turn.completed", "usage": {"input_tok')
+
+    assert stats(path).input_tokens == 10
 
 
 def test_a_stream_that_is_missing_or_nonsense_leaves_the_counts_at_zero(tmp_path: Path) -> None:
     nonsense = tmp_path / "nonsense.jsonl"
-    nonsense.write_text("not json at all\n\n[]\n3\n{}\n", encoding="utf-8")
+    nonsense.write_text('[1, 2]\n"text"\n{"type": "turn.completed", "usage": 7}\n')
 
-    for read in (opencode, pi):
-        for stats in (read(tmp_path / "never-written.jsonl"), read(nonsense)):
-            assert (stats.input_tokens, stats.output_tokens, stats.tool_calls) == (0, 0, {})
-
-
-def test_token_counts_the_stream_did_not_report_as_numbers_are_ignored(tmp_path: Path) -> None:
-    shapes = [
-        step("prt_1", {"input": 100, "output": None, "reasoning": "lots", "cache": "none"}),
-        step("prt_2", {"input": True, "cache": {"read": 7}}),
-        step("prt_3", "no tokens at all"),
-    ]
-
-    stats = opencode(stream(tmp_path, *shapes))
-
-    assert (stats.input_tokens, stats.output_tokens, stats.reasoning_tokens) == (100, 0, 0)
-    assert stats.cache_read_tokens == 7
+    for path in (tmp_path / "missing.jsonl", nonsense):
+        parsed = stats(path)
+        assert (parsed.input_tokens, parsed.output_tokens, parsed.tool_calls) == (0, 0, {})
 
 
-def test_a_real_pi_stream_gives_its_token_and_tool_counts() -> None:
-    stats = pi(PI_CAPTURE)
+def test_counts_the_stream_did_not_report_as_numbers_are_ignored(tmp_path: Path) -> None:
+    parsed = stats(
+        stream(tmp_path, turn(input_tokens="12", cached_input_tokens=True, output_tokens=None))
+    )
 
-    # Four assistant messages. The capture's own `output` sums to 2,141 with the reasoning still
-    # inside it; what is reported is the 251 the model wrote on top of the 1,890 it thought.
-    assert stats.input_tokens == 13282
-    assert stats.output_tokens == 251
-    assert stats.reasoning_tokens == 1890
-    assert stats.cache_read_tokens == 17408
-    assert stats.tool_calls == {"read": 4, "bash": 3}
-
-
-def test_pis_reasoning_is_taken_out_of_its_output(tmp_path: Path) -> None:
-    usage = {"input": 300, "output": 250, "reasoning": 200, "cacheRead": 9000, "cacheWrite": 40}
-
-    stats = pi(stream(tmp_path, message(usage)))
-
-    # pi counts its reasoning inside `output` and opencode counts the two side by side. Reporting
-    # pi's `output` as it arrives would count the reasoning twice and make the Run look dearer.
-    assert (stats.output_tokens, stats.reasoning_tokens) == (50, 200)
-    assert (stats.input_tokens, stats.cache_read_tokens) == (300, 9000)
-
-
-def test_pi_usage_without_a_reasoning_breakdown_is_all_output(tmp_path: Path) -> None:
-    stats = pi(stream(tmp_path, message({"input": 300, "output": 250, "cacheRead": 10})))
-
-    assert (stats.output_tokens, stats.reasoning_tokens) == (250, 0)
-
-
-def test_only_pis_assistant_messages_are_counted(tmp_path: Path) -> None:
-    spent = {"input": 40, "output": 5}
-    events = [message(spent), message(spent, role="user"), message(spent, role="toolResult")]
-
-    assert pi(stream(tmp_path, *events)).input_tokens == 40
-
-
-def test_pi_tool_calls_are_counted_by_name_most_used_first(tmp_path: Path) -> None:
-    names = ["read", "bash", "bash", "bash"]
-    calls = [execution(f"toolu_{n}", name) for n, name in enumerate(names)]
-
-    stats = pi(stream(tmp_path, *calls))
-
-    assert stats.tool_calls == {"bash": 3, "read": 1}
-    assert list(stats.tool_calls) == ["bash", "read"]
-
-
-def test_a_pi_stream_cut_mid_line_keeps_the_messages_it_finished(tmp_path: Path) -> None:
-    path = stream(tmp_path, message({"input": 900, "output": 20}))
-    path.write_text(path.read_text(encoding="utf-8") + '{"type":"message_', encoding="utf-8")
-
-    stats = pi(path)
-
-    assert (stats.input_tokens, stats.output_tokens) == (900, 20)
-
-
-def test_pi_usage_the_stream_did_not_report_as_numbers_is_ignored(tmp_path: Path) -> None:
-    shapes = [
-        message({"input": 100, "output": None, "reasoning": "lots", "cacheRead": True}),
-        message("no usage at all"),
-        {"type": "tool_execution_start", "toolCallId": "toolu_1", "toolName": None},
-    ]
-
-    stats = pi(stream(tmp_path, *shapes))
-
-    assert (stats.input_tokens, stats.output_tokens, stats.reasoning_tokens) == (100, 0, 0)
-    assert (stats.cache_read_tokens, stats.tool_calls) == (0, {})
-
-
-def test_each_reviewer_reads_only_its_own_stream() -> None:
-    """The two shapes share no ground, so a stream read by the wrong parser reports nothing."""
-    crossed = (pi(OPENCODE_CAPTURE), opencode(PI_CAPTURE))
-
-    for stats in crossed:
-        assert (stats.input_tokens, stats.output_tokens, stats.tool_calls) == (0, 0, {})
+    assert (parsed.input_tokens, parsed.cache_read_tokens, parsed.output_tokens) == (0, 0, 0)

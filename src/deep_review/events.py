@@ -1,20 +1,23 @@
-"""What a Run spent, read back out of the Reviewer's event stream."""
+"""What a Run spent, read back out of the Reviewer's `codex exec --json` event stream."""
 
 import json
 from collections import Counter
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 from deep_review.report import RunStats
 
+# Item types that are the Reviewer acting rather than talking. The rest (agent_message,
+# reasoning, todo_list, error) are what it said or thought, not a tool it reached for.
+TOOL_ITEMS = frozenset({"command_execution", "file_change", "mcp_tool_call", "web_search"})
+
 
 @dataclass(frozen=True, slots=True)
 class Tokens:
     """
-    One step's tokens in the terms the Report reports them: `input` is the fresh half of the input,
-    and `output` is what the model wrote *besides* its reasoning. Each Reviewer's reader normalises
-    to this, so a Run's numbers mean the same thing whichever Reviewer produced them.
+    Tokens in the terms the Report reports them: `input` is the fresh half of the input, and
+    `output` is what the model wrote *besides* its reasoning.
     """
 
     input: int = 0
@@ -23,37 +26,10 @@ class Tokens:
     cache_read: int = 0
 
 
-@dataclass(frozen=True, slots=True)
-class Spend:
+def codex_stats(path: Path, stats: RunStats) -> RunStats:
     """
-    What one event reported: a step's tokens, one tool call, or neither. `identity` is the stream's
-    own name for the thing being reported, where the stream has one — an event that arrives twice
-    under the same identity is counted once.
-    """
-
-    identity: str | None = None
-    tokens: Tokens | None = None
-    tool: str | None = None
-
-
-# How one Reviewer reads one of its events. Every difference between the streams lives behind this.
-Reader = Callable[[dict[str, object]], Spend | None]
-
-
-def opencode_stats(path: Path, stats: RunStats) -> RunStats:
-    """The same stats with what opencode's event stream says the Run spent."""
-    return _tally(path, _opencode, stats)
-
-
-def pi_stats(path: Path, stats: RunStats) -> RunStats:
-    """The same stats with what pi's event stream says the Run spent."""
-    return _tally(path, _pi, stats)
-
-
-def _tally(path: Path, read: Reader, stats: RunStats) -> RunStats:
-    """
-    The same stats with what the stream says the Run spent: tokens summed over every step it
-    reported, and one count per tool name, most-used first.
+    The same stats with what the stream says the Run spent: tokens summed over every completed
+    turn, and one count per tool, most-used first.
 
     Nothing here can fail a Run. A stream that is missing, cut mid-line by the time cap, or full of
     shapes this parser has never seen leaves the counts at zero and says nothing — the Findings are
@@ -63,17 +39,11 @@ def _tally(path: Path, read: Reader, stats: RunStats) -> RunStats:
     tools: Counter[str] = Counter()
     counted: set[str] = set()
     for event in _events(path):
-        spend = read(event)
-        if spend is None:
-            continue
-        if spend.identity is not None:
-            if spend.identity in counted:
-                continue
-            counted.add(spend.identity)
-        if spend.tokens is not None:
-            totals = _sum(totals, spend.tokens)
-        if spend.tool is not None:
-            tools[spend.tool] += 1
+        kind = event.get("type")
+        if kind == "turn.completed":
+            totals = _sum(totals, _tokens(event.get("usage")))
+        elif kind == "item.completed" and (tool := _tool(event.get("item"), counted)):
+            tools[tool] += 1
     return stats.model_copy(
         update={
             "input_tokens": totals.input,
@@ -85,82 +55,49 @@ def _tally(path: Path, read: Reader, stats: RunStats) -> RunStats:
     )
 
 
+def _tool(item: object, counted: set[str]) -> str | None:
+    """
+    The tool one completed item used, or None for an item that is not a tool call. An MCP call
+    is named by its server and tool; the built-ins by their item type. An item id seen before is
+    not counted again: a stable id is the stream's own word that it is the same call.
+    """
+    if not isinstance(item, dict) or item.get("type") not in TOOL_ITEMS:
+        return None
+    identity = _name(item.get("id"))
+    if identity is not None:
+        if identity in counted:
+            return None
+        counted.add(identity)
+    if item["type"] == "mcp_tool_call":
+        return f"{item.get('server')}.{item.get('tool')}"
+    return str(item["type"])
+
+
+def _tokens(reported: object) -> Tokens:
+    """
+    One turn's usage. Codex reports cached input inside `input_tokens` (its own `non_cached_input`
+    is the difference) and reasoning inside `output_tokens` (it prints it as "output N (reasoning
+    M)"), so both are taken out here rather than counted twice.
+    """
+    if not isinstance(reported, dict):
+        return Tokens()
+    cached = _count(reported.get("cached_input_tokens"))
+    reasoning = _count(reported.get("reasoning_output_tokens"))
+    return Tokens(
+        input=max(_count(reported.get("input_tokens")) - cached, 0),
+        output=max(_count(reported.get("output_tokens")) - reasoning, 0),
+        reasoning=reasoning,
+        cache_read=cached,
+    )
+
+
 def _sum(running: Tokens, step: Tokens) -> Tokens:
-    """The running total with one more step's tokens in it."""
+    """The running total with one more turn's tokens in it."""
     return Tokens(
         input=running.input + step.input,
         output=running.output + step.output,
         reasoning=running.reasoning + step.reasoning,
         cache_read=running.cache_read + step.cache_read,
-    )
-
-
-def _opencode(event: dict[str, object]) -> Spend | None:
-    """
-    opencode reports on the event's *part*, not the event. `run --format json` renames each part as
-    it prints it (`step-finish` becomes `step_finish`), so the part carries the stream's own name
-    for the thing and the event carries one formatter's spelling of it.
-    """
-    part = event.get("part")
-    if not isinstance(part, dict):
-        return None
-    # opencode prints an event per part update, and the same part can arrive twice — its event bus
-    # replays on a reconnect, which is why it coalesces by part id upstream. Tokens added twice are
-    # worse than tokens never added.
-    identity = _name(part.get("callID")) or _name(part.get("id"))
-    kind = part.get("type")
-    if kind == "step-finish":
-        return Spend(identity=identity, tokens=_opencode_tokens(part.get("tokens")))
-    if kind == "tool":
-        return Spend(identity=identity, tool=_name(part.get("tool")))
-    return None
-
-
-def _pi(event: dict[str, object]) -> Spend | None:
-    """
-    pi reports on the event itself: a message's usage when the message ends, and a tool call when
-    its execution starts. Neither carries an identity, because pi prints its stream straight to
-    stdout as it goes rather than replaying an event bus — nothing arrives twice to be counted
-    twice, and the only id on an assistant message is the provider's, not the stream's own.
-    """
-    kind = event.get("type")
-    if kind == "message_end":
-        message = event.get("message")
-        if not isinstance(message, dict) or message.get("role") != "assistant":
-            return None
-        return Spend(tokens=_pi_tokens(message.get("usage")))
-    if kind == "tool_execution_start":
-        return Spend(tool=_name(event.get("toolName")))
-    return None
-
-
-def _opencode_tokens(reported: object) -> Tokens:
-    """One opencode step's tokens, which already keep reasoning and output apart."""
-    if not isinstance(reported, dict):
-        return Tokens()
-    cache = reported.get("cache")
-    return Tokens(
-        input=_count(reported.get("input")),
-        output=_count(reported.get("output")),
-        reasoning=_count(reported.get("reasoning")),
-        cache_read=_count(cache.get("read")) if isinstance(cache, dict) else 0,
-    )
-
-
-def _pi_tokens(reported: object) -> Tokens:
-    """
-    One pi message's usage. Its `reasoning` is a subset of its `output` where opencode reports the
-    two side by side, so the reasoning half comes out of `output` here rather than being counted in
-    both columns and making the Run look dearer than it was.
-    """
-    if not isinstance(reported, dict):
-        return Tokens()
-    reasoning = _count(reported.get("reasoning"))
-    return Tokens(
-        input=_count(reported.get("input")),
-        output=max(_count(reported.get("output")) - reasoning, 0),
-        reasoning=reasoning,
-        cache_read=_count(reported.get("cacheRead")),
     )
 
 

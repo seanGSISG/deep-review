@@ -8,18 +8,18 @@ description: Local, pre-PR review of the current branch by a Reviewer of a diffe
 This Skill drives the `deep-review` CLI. The CLI runs a Reviewer of a different model family from
 you, on purpose: a second family does not share your blind spots about code you just wrote. The
 Reviewer works inside this checkout, grepping callers, reading whole files and running the tests,
-and it reports only defects it proved with quoted evidence and a failure scenario. The heavier
-review of the same change runs in Actions once the PR is up, so this loop's job is to catch what
-it can cheaply, before the PR exists.
+and it reports only defects it proved with quoted evidence and a failure scenario. Automated
+review of the PR itself (argus) runs once it is up, so this loop's job is to catch what it can
+before the PR exists.
 
 Your job is the Round loop below: request a Run, have the Findings verified, fix what is real,
 and carry on with the push or PR the user asked for. The CLI does the work.
 
-If the CLI is not on PATH, or its preflight refuses, the user runs one command in a terminal:
-`curl -fsSL https://raw.githubusercontent.com/seanGSISG/deep-review/main/install.sh | sh` (or
-`deep-review setup` once the CLI exists). That installs the Reviewer and asks for the Z.AI key with
-the input hidden. Tell the user to run it; never ask them to paste the key into the chat, and never
-run it yourself through a tool, because the key prompt needs their terminal.
+The Reviewer is Codex (`gpt-6.1-sol` at medium effort) on the user's own Codex login. If the CLI
+is not on PATH, or its preflight refuses, tell the user what it said. The fixes are theirs to run in
+a terminal: `curl -fsSL https://raw.githubusercontent.com/seanGSISG/deep-review/main/install.sh | sh`
+for the CLI, `npm install -g @openai/codex` or `codex update` for Codex, and `codex login`, which
+opens a browser. Never run `codex login` yourself through a tool.
 
 ## The Round loop
 
@@ -48,8 +48,8 @@ run it yourself through a tool, because the key prompt needs their terminal.
    overrule you with the same facts in front of them.
 
 4. **Again, once.** A task gets at most **two Rounds**: Run, verify, fix, Run, verify, fix, proceed.
-   There is no third confirming Run: each one costs minutes and credits, and the PR-mode Run in
-   Actions is the confirming pass. After the second Round, proceed regardless and report what is
+   There is no third confirming Run: each one costs minutes and Codex usage, and the automated
+   review on the PR is the confirming pass. After the second Round, proceed regardless and report what is
    left with its evidence.
 
 The Run's directory, `.deep-review/`, belongs to the CLI: never edit anything under it by hand and
@@ -65,7 +65,7 @@ Adds retry handling. Two data-loss paths on the main flow.
 
 findings  2 (P1 1, P2 1)
 score     2/5 (advisory)
-reviewer  opencode zai-coding-plan/glm-5.3 in 4m12s
+reviewer  codex gpt-6.1-sol (medium) in 4m12s
 report    .deep-review/findings.json
 ```
 

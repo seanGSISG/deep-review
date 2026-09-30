@@ -3,10 +3,11 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+from deep_review.events import codex_stats
 from deep_review.git import RUN_DIR_NAME, Base, Diff
 from deep_review.local import write_run_inputs
 from deep_review.report import Report, RunStats, read_findings, serialise
-from deep_review.reviewer import EVENTS_NAME, FINDINGS_NAME, STDERR_NAME, Outcome, Reviewer, invoke
+from deep_review.reviewer import BINARY, EVENTS_NAME, FINDINGS_NAME, STDERR_NAME, Outcome, invoke
 from deep_review.signal import collect
 
 
@@ -14,9 +15,8 @@ from deep_review.signal import collect
 class RunOptions:
     """The knobs `deep-review review` exposes, resolved from the command line."""
 
-    reviewer: Reviewer
     model: str
-    variant: str | None
+    effort: str
     timeout_seconds: float
     signal_timeout_seconds: float
     max_diff_lines: int
@@ -32,7 +32,7 @@ def execute(
     and a notice, because the Coding agent needs to hear what happened and a Report is how a Run
     says it.
     """
-    stats = RunStats(agent=options.reviewer.name, model=options.model, variant=options.variant)
+    stats = RunStats(agent=BINARY, model=options.model, effort=options.effort)
     if not diff.text.strip():
         # An earlier Diff's Report must not outlive it. The Skill hands the Verifier whatever
         # findings file is in the checkout, so one describing a change that is gone is worse
@@ -64,16 +64,15 @@ def execute(
     # nothing to check: a tool that is missing or broken just leaves the Reviewer a colder repo.
     collect(repo, inputs.run_dir, timeout_seconds=options.signal_timeout_seconds)
     outcome = invoke(
-        options.reviewer,
         repo=repo,
         run_dir=inputs.run_dir,
         prompt=inputs.prompt_path.read_text(encoding="utf-8"),
         model=options.model,
-        variant=options.variant,
+        effort=options.effort,
         timeout_seconds=options.timeout_seconds,
     )
     stats = stats.model_copy(update={"seconds": round(outcome.seconds, 1)})
-    stats = options.reviewer.read_stats(inputs.run_dir / EVENTS_NAME, stats)
+    stats = codex_stats(inputs.run_dir / EVENTS_NAME, stats)
     report = read_findings(findings_path, stats)
     # A Reviewer that crashed or ran out of time leaves a failed Run even when a findings file
     # survived it, because nothing proves that file is the whole Report. Whatever Findings it did

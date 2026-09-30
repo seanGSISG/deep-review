@@ -1,5 +1,7 @@
 # MVP2: future improvements for deep-review
 
+> Written for the GLM Reviewers on opencode and pi, before ADR-0004 moved the Reviewer to Codex.
+
 Backlog for the next iteration of the review stack, recorded 2026-09-18 after the first bake-off
 (`docs/bakeoff-2026-09.md`). Ordered by leverage. Nothing here is started.
 
